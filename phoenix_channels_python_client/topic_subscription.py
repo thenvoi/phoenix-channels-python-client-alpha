@@ -20,13 +20,6 @@ class TopicSubscribeResult:
 
 
 @dataclass()
-class TopicRegistration:
-    status_updated_event: Event
-    connection_ref: Optional[str] = None
-    result: Optional[TopicSubscribeResult] = None
-
-
-@dataclass()
 class TopicSubscription:
     """Represents a topic subscription with all necessary components for message handling"""
     name: Topic
