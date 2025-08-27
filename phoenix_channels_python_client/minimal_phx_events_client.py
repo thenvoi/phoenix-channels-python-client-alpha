@@ -91,6 +91,7 @@ async def main():
         async with PHXChannelsClient(ws_url_with_auth) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
             await client.subscribe_to_topic("tasks:your-room-id", lambda message: print("BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"))
+            await asyncio.sleep(10)
             
             
     except Exception as e:

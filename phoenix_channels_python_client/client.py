@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from asyncio import AbstractEventLoop, Event, Queue, Task
+from asyncio import AbstractEventLoop, Event, Queue, Task, Future
 from concurrent.futures import Executor, ThreadPoolExecutor
 from functools import partial
 import inspect
@@ -25,7 +25,7 @@ from phoenix_channels_python_client.phx_messages import (
     PHXEvent,
     Topic,
 )
-from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicRegistration, TopicSubscribeResult
+from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicRegistration, TopicSubscribeResult, TopicSubscription
 from phoenix_channels_python_client.utils import make_message
 
 
@@ -34,6 +34,7 @@ class PHXChannelsClient:
     logger: Logger
 
     _topic_registration_status: dict[Topic, TopicRegistration]
+    _topic_subscriptions: dict[Topic, TopicSubscription]
     _loop: AbstractEventLoop
     _executor_pool: Optional[Executor]
     _registration_queue: Queue
@@ -47,6 +48,7 @@ class PHXChannelsClient:
         self.channel_socket_url = channel_socket_url
         self.connection = None
         self._topic_registration_status = {}
+        self._topic_subscriptions = {}
         self._registration_queue = Queue()
         self._topic_registration_task = None
         self._loop = event_loop or asyncio.get_event_loop()
@@ -145,6 +147,14 @@ class PHXChannelsClient:
 
         if self._topic_registration_task is not None:
             self._topic_registration_task.cancel()
+        
+        # Cancel all topic subscription tasks
+        for topic, subscription in self._topic_subscriptions.items():
+            if subscription.process_topic_messages_task:
+                subscription.process_topic_messages_task.cancel()
+                self.logger.debug(f'Cancelled topic subscription task for {topic}')
+        
+        self._topic_subscriptions.clear()
 
     def register_event_handler(
         self,
@@ -204,6 +214,83 @@ class PHXChannelsClient:
 
         return status_updated_event
 
+    def _set_subscription_result(self, topic_subscription: TopicSubscription, result: TopicSubscribeResult) -> None:
+        """Safely set subscription result only if not already done"""
+        if not topic_subscription.subscription_result.done():
+            topic_subscription.subscription_result.set_result(result)
+
+    def _set_subscription_error(self, topic_subscription: TopicSubscription, error: Exception) -> None:
+        """Safely set subscription error only if not already done"""
+        if not topic_subscription.subscription_result.done():
+            topic_subscription.subscription_result.set_exception(error)
+
+    async def _process_topic_messages(self, topic_subscription: TopicSubscription) -> None:
+        """Process messages for a specific topic subscription"""
+        topic = topic_subscription.name
+        self.logger.debug(f'Starting topic message processor for {topic}')
+        
+        try:
+            # Wait for the first message which should be the join reply
+            first_message = await topic_subscription.queue.get()
+            topic_subscription.queue.task_done()
+            self.logger.debug(f'Got first message for topic {topic}: {first_message}')
+            
+            # Check if it's a successful join reply
+            is_join_success = (
+                hasattr(first_message, 'event') and 
+                first_message.event == PHXEvent.reply and
+                first_message.payload.get('status') == 'ok'
+            )
+            
+            if is_join_success:
+                # Successfully joined topic
+                result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, first_message)
+                self._set_subscription_result(topic_subscription, result)
+                self.logger.info(f'Successfully subscribed to topic {topic}')
+                
+                # Continue processing messages for this topic
+                await self._process_ongoing_messages(topic_subscription)
+            else:
+                # Failed to join topic or unexpected message
+                result = TopicSubscribeResult(SubscriptionStatus.FAILED, first_message)
+                self._set_subscription_result(topic_subscription, result)
+                self.logger.error(f'Failed to subscribe to topic {topic}: {first_message.payload if hasattr(first_message, "payload") else first_message}')
+                self._unregister_topic(topic)
+                
+        except Exception as e:
+            self.logger.exception(f'Error in topic message processor for {topic}: {e}')
+            self._set_subscription_error(topic_subscription, e)
+            self._unregister_topic(topic)
+
+    async def _process_ongoing_messages(self, topic_subscription: TopicSubscription) -> None:
+        """Process ongoing messages for a successfully subscribed topic"""
+        topic = topic_subscription.name
+        
+        try:
+            while True:
+                message = await topic_subscription.queue.get()
+                self.logger.debug(f'Processing message for topic {topic}: {message}')
+                
+                try:
+                    topic_subscription.callback(message)
+                except Exception as e:
+                    self.logger.exception(f'Error in topic callback for {topic}: {e}')
+                
+                topic_subscription.queue.task_done()
+        except asyncio.CancelledError:
+            self.logger.debug(f'Topic message processor for {topic} cancelled')
+        except Exception as e:
+            self.logger.exception(f'Error processing ongoing messages for {topic}: {e}')
+
+    def _unregister_topic(self, topic: Topic) -> None:
+        """Unregister a topic subscription"""
+        if topic in self._topic_subscriptions:
+            topic_subscription = self._topic_subscriptions[topic]
+            if topic_subscription.process_topic_messages_task:
+                topic_subscription.process_topic_messages_task.cancel()
+            del self._topic_subscriptions[topic]
+            self.logger.info(f'Unregistered topic {topic}')
+
     async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
         print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
@@ -213,12 +300,50 @@ class PHXChannelsClient:
             phx_message = self._parse_message(socket_message)
             self.logger.debug(f'Processing message - {phx_message=}')
             topic = phx_message.topic
+            
+            # Route message to topic subscription if it exists
+            if topic in self._topic_subscriptions:
+                topic_subscription = self._topic_subscriptions[topic]
+                await topic_subscription.queue.put(phx_message)
 
-    async def subscribe_to_topic(self, topic: Topic,callback: Callable[[ChannelMessage], None]) -> None:
-        status_updated_event = self.register_topic_subscription(topic)
+    async def subscribe_to_topic(self, topic: Topic, callback: Callable[[ChannelMessage], None]) -> TopicSubscribeResult:
+        """Subscribe to a topic with the given callback"""
+        
+        # Check if topic is already subscribed
+        if topic in self._topic_subscriptions:
+            raise PHXTopicTooManyRegistrationsError(f'Topic {topic} already subscribed')
+        
+        # Create the topic subscription
+        topic_queue = Queue()
+        subscription_result_future = self._loop.create_future()
+        
+        topic_subscription = TopicSubscription(
+            name=topic,
+            callback=callback,
+            queue=topic_queue,
+            subscription_result=subscription_result_future
+        )
+        
+        # Start the topic message processor task
+        topic_subscription.process_topic_messages_task = self._loop.create_task(
+            self._process_topic_messages(topic_subscription)
+        )
+        
+        # Add to subscriptions dictionary
+        self._topic_subscriptions[topic] = topic_subscription
+        
+        # Send join message
         topic_join_message = make_message(event=PHXEvent.join, topic=topic)
         await self._send_message(self.connection, topic_join_message)
-        await asyncio.sleep(10)
+        
+        # Wait for subscription result and return it
+        try:
+            result = await subscription_result_future
+            return result
+        except Exception as e:
+            # Clean up on error
+            self._unregister_topic(topic)
+            raise
 
 
     async def _start_processing(self) -> None:
