@@ -67,32 +67,6 @@ root_logger.addHandler(file_handler)
 logger = logging.getLogger(__name__)
 logger.setLevel(log_level_map.get(log_level, logging.DEBUG))
 
-# async def message_handler(message: ChannelMessage) -> None:
-#     """Handle incoming messages from the WebSocket."""
-#     logger.debug(f"Processing message: {message.event} on {message.topic}")
-
-
-
-
-# async def participant_added_handler(message: ChannelMessage) -> None:
-#     """Handle participant added events (when someone joins a room)."""
-#     logger.debug(f"Participant added to room: {message.topic}")
-
-
-# async def participant_removed_handler(message: ChannelMessage) -> None:
-#     """Handle participant removed events (when someone leaves a room)."""
-#     logger.debug(f"Participant removed from room: {message.topic}")
-
-
-# async def room_added_handler(message: ChannelMessage) -> None:
-#     """Handle room added events (when user is added to a new room)."""
-#     logger.debug(f"User added to room: {message.topic}")
-
-
-# async def room_removed_handler(message: ChannelMessage) -> None:
-#     """Handle room removed events (when user is removed from a room)."""
-#     logger.debug(f"User removed from room: {message.topic}")
-
 
 async def main():
     """Main client function."""
@@ -103,12 +77,7 @@ async def main():
     
     ws_base_url = os.getenv("THENVOI_WS_URL", "ws://localhost:4000")
     
-    # room_id = os.getenv("THENVOI_ROOM_ID", "ddaf887b-2f86-4df1-a27d-4f8f0a360869")
     
-    # logger.info(f"🔍 Debug - Environment values:")
-    # logger.info(f"   API Key: {api_key[:10] + '...' if api_key and len(api_key) > 10 else api_key}")
-    # logger.info(f"   WS Base URL: {ws_base_url}")
-    # logger.info(f"   User ID: {user_id}")
     
     if not api_key:
         logger.error("❌ Error: THENVOI_API_KEY environment variable is required")
@@ -117,17 +86,11 @@ async def main():
     
     ws_url_with_auth = f"{ws_base_url}?api_key={api_key}&vsn=1.0.0"
     
-    # logger.info(f"🚀 Starting minimal phx-events client...")
-    # logger.info(f"   WebSocket URL: {ws_url_with_auth}")
-    # logger.info(f"   User ID: {user_id}")
-    # logger.info(f"   Room ID: {room_id}")
-    # logger.info(f"   Topics: tasks:{user_id}, room_participants:{room_id}, user_rooms:{user_id}")
-    # logger.info("-" * 50)
-    
     try:
         logger.debug("Attempting to connect to Phoenix WebSocket...")
         async with PHXChannelsClient(ws_url_with_auth) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
+            await client.subscribe_to_topic("tasks:your-room-id", lambda message: print("BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"))
             
             
     except Exception as e:
