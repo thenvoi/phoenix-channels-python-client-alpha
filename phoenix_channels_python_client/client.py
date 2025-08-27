@@ -180,6 +180,10 @@ class PHXChannelsClient:
                 topic_subscription = self._topic_subscriptions[topic]
                 await topic_subscription.queue.put(phx_message)
 
+    def get_current_subscriptions(self) -> dict[str, TopicSubscription]:
+        """Return a copy of the current topic subscriptions"""
+        return self._topic_subscriptions.copy()
+
     async def subscribe_to_topic(self, topic: str, callback: Callable[[ChannelMessage], None]) -> TopicSubscribeResult:
         """Subscribe to a topic with the given callback"""
         
