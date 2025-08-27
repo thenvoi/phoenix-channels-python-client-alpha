@@ -66,7 +66,7 @@ class PHXChannelsClient:
         traceback: Optional[TracebackType] = None,
     ) -> None:
         self.logger.debug('Leaving PHXChannelsClient context')
-        self.shutdown('Leaving PHXChannelsClient context')
+        await self.shutdown('Leaving PHXChannelsClient context')
 
     async def _send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
         self.logger.debug(f'Serialising {message=} to JSON')
@@ -135,12 +135,8 @@ class PHXChannelsClient:
         reason: str,
     ) -> None:
         self.logger.info(f'Event loop shutting down! {reason=}')
+        await self.connection.close()
 
-        if self.connection and not self.connection.closed:
-            await self.connection.close()
-
-
-        
         # Cancel all topic subscription tasks
         for topic, subscription in self._topic_subscriptions.items():
             if subscription.process_topic_messages_task:
