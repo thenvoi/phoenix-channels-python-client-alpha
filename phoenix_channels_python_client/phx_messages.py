@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from phoenix_channels_python_client.client import PHXChannelsClient
 
 
-Topic = NewType('Topic', str)
 Event = NewType('Event', str)
 ChannelEvent = Union['PHXEvent', Event]
 ChannelMessage = Union['PHXMessage', 'PHXEventMessage']
@@ -42,24 +41,6 @@ class CoroutineHandler(Protocol):
 ChannelHandlerFunction = Union[ExecutorHandler, CoroutineHandler]
 
 
-@dataclass()
-class EventHandlerConfig:
-    """
-    Args:
-        queue (asyncio.Queue): The queue that messages are passed into and the event handlers are fed from
-        default_handlers (list[ChannelHandlerFunction]): Handler functions that should always be run for the specified
-                                                         event.
-        topic_handlers (dict[Topic, list[ChannelHandlerFunction]]): Handler functions that should be run only for the
-                                                                    topics specified in the mapping.
-        task (asyncio.Task): The task that consumes off the `queue` and determines which `default_handlers` and
-                             `topic_handlers` to run.
-    """
-    queue: asyncio.Queue[ChannelMessage]
-    default_handlers: list[ChannelHandlerFunction]
-    topic_handlers: dict[Topic, list[ChannelHandlerFunction]]
-    task: asyncio.Task[None]
-
-
 @unique
 class PHXEvent(Enum):
     """Phoenix Channels admin events"""
@@ -78,7 +59,7 @@ class PHXEvent(Enum):
 
 @dataclass(frozen=True)
 class BasePHXMessage:
-    topic: Topic
+    topic: str
     ref: Optional[str]
     payload: dict[str, Any]
 

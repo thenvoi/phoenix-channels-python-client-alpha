@@ -19,17 +19,12 @@ Logging:
     - Set LOG_LEVEL=DEBUG to see all phx_events internal operations
     - Set LOG_LEVEL=INFO for normal operation with some debug info
 """
-from phoenix_channels_python_client.api import nothing
 from phoenix_channels_python_client.client import PHXChannelsClient
 
 import asyncio
 import os
 import logging
-# from phx_events.client import PHXChannelsClient
-# from phx_events.phx_messages import ChannelMessage, Event, Topic
 from dotenv import load_dotenv
-nothing()
-# # Configure logging to see phx_events internal operations
 log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
 log_level_map = {
     "DEBUG": logging.DEBUG,

@@ -1,10 +1,9 @@
-import asyncio
-from asyncio import Event, Queue, Task, Future
+from asyncio import  Queue, Task, Future
 from dataclasses import dataclass
 from enum import IntEnum, unique
-from typing import Optional, Callable
+from typing import  Callable
 
-from phoenix_channels_python_client.phx_messages import PHXEventMessage, ChannelMessage, Topic
+from phoenix_channels_python_client.phx_messages import PHXEventMessage, ChannelMessage
 
 
 @unique
@@ -22,7 +21,7 @@ class TopicSubscribeResult:
 @dataclass()
 class TopicSubscription:
     """Represents a topic subscription with all necessary components for message handling"""
-    name: Topic
+    name: str
     callback: Callable[[ChannelMessage], None]
     queue: Queue[ChannelMessage]
     subscription_result: Future[TopicSubscribeResult]

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from phoenix_channels_python_client.phx_messages import ChannelEvent, ChannelMessage, PHXEvent, PHXEventMessage, PHXMessage, Topic
+from phoenix_channels_python_client.phx_messages import ChannelEvent, ChannelMessage, PHXEvent, PHXEventMessage, PHXMessage
 
 
 def parse_event(event: ChannelEvent) -> ChannelEvent:
@@ -13,7 +13,7 @@ def parse_event(event: ChannelEvent) -> ChannelEvent:
 
 def make_message(
     event: ChannelEvent,
-    topic: Topic,
+    topic: str,
     ref: Optional[str] = None,
     payload: Optional[dict[str, Any]] = None,
 ) -> ChannelMessage:
