@@ -8,7 +8,6 @@ from logging import Logger
 import signal
 from types import TracebackType
 from typing import Awaitable, Callable, cast, Optional, Type, Union
-from urllib.parse import urlencode
 from websockets import ClientConnection
 
 from websockets import connect
@@ -224,16 +223,16 @@ class PHXChannelsClient:
         if not topic_subscription.subscription_result.done():
             topic_subscription.subscription_result.set_exception(error)
 
-    async def _process_topic_messages(self, topic_subscription: TopicSubscription) -> None:
+    async def _process_topic_messages(self, topic_name: str) -> None:
         """Process messages for a specific topic subscription"""
-        topic = topic_subscription.name
-        self.logger.debug(f'Starting topic message processor for {topic}')
+        topic=self._topic_subscriptions[topic_name]
+        self.logger.debug(f'Starting topic message processor for {topic.name}')
         
         try:
             # Wait for the first message which should be the join reply
-            first_message = await topic_subscription.queue.get()
-            topic_subscription.queue.task_done()
-            self.logger.debug(f'Got first message for topic {topic}: {first_message}')
+            first_message = await topic.queue.get()
+            topic.queue.task_done()
+            self.logger.debug(f'Got first message for topic {topic.name}: {first_message}')
             
             # Check if it's a successful join reply
             is_join_success = (
@@ -245,51 +244,50 @@ class PHXChannelsClient:
             if is_join_success:
                 # Successfully joined topic
                 result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, first_message)
-                self._set_subscription_result(topic_subscription, result)
-                self.logger.info(f'Successfully subscribed to topic {topic}')
+                self._set_subscription_result(topic, result)
+                self.logger.info(f'Successfully subscribed to topic {topic.name}')
                 
                 # Continue processing messages for this topic
-                await self._process_ongoing_messages(topic_subscription)
+                await self._process_ongoing_messages(topic)
             else:
                 # Failed to join topic or unexpected message
                 result = TopicSubscribeResult(SubscriptionStatus.FAILED, first_message)
-                self._set_subscription_result(topic_subscription, result)
-                self.logger.error(f'Failed to subscribe to topic {topic}: {first_message.payload if hasattr(first_message, "payload") else first_message}')
-                self._unregister_topic(topic)
+                self._set_subscription_result(topic, result)
+                self.logger.error(f'Failed to subscribe to topic {topic.name}: {first_message.payload if hasattr(first_message, "payload") else first_message}')
+                self._unregister_topic(topic.name)
                 
         except Exception as e:
-            self.logger.exception(f'Error in topic message processor for {topic}: {e}')
-            self._set_subscription_error(topic_subscription, e)
-            self._unregister_topic(topic)
+            self.logger.exception(f'Error in topic message processor for {topic.name}: {e}')
+            self._set_subscription_error(topic, e)
+            self._unregister_topic(topic.name)
 
-    async def _process_ongoing_messages(self, topic_subscription: TopicSubscription) -> None:
+    async def _process_ongoing_messages(self, topic: TopicSubscription) -> None:
         """Process ongoing messages for a successfully subscribed topic"""
-        topic = topic_subscription.name
         
         try:
             while True:
-                message = await topic_subscription.queue.get()
-                self.logger.debug(f'Processing message for topic {topic}: {message}')
+                message = await topic.queue.get()
+                self.logger.debug(f'Processing message for topic {topic.name}: {message}')
                 
                 try:
-                    topic_subscription.callback(message)
+                    topic.callback(message)
                 except Exception as e:
-                    self.logger.exception(f'Error in topic callback for {topic}: {e}')
+                    self.logger.exception(f'Error in topic callback for {topic.name}: {e}')
                 
-                topic_subscription.queue.task_done()
+                topic.queue.task_done()
         except asyncio.CancelledError:
-            self.logger.debug(f'Topic message processor for {topic} cancelled')
+            self.logger.debug(f'Topic message processor for {topic.name} cancelled')
         except Exception as e:
-            self.logger.exception(f'Error processing ongoing messages for {topic}: {e}')
+            self.logger.exception(f'Error processing ongoing messages for {topic.name}: {e}')
 
-    def _unregister_topic(self, topic: Topic) -> None:
+    def _unregister_topic(self, topic_name: str) -> None:
         """Unregister a topic subscription"""
-        if topic in self._topic_subscriptions:
-            topic_subscription = self._topic_subscriptions[topic]
+        if topic_name in self._topic_subscriptions:
+            topic_subscription = self._topic_subscriptions[topic_name]
             if topic_subscription.process_topic_messages_task:
                 topic_subscription.process_topic_messages_task.cancel()
-            del self._topic_subscriptions[topic]
-            self.logger.info(f'Unregistered topic {topic}')
+            del self._topic_subscriptions[topic_name]
+            self.logger.info(f'Unregistered topic {topic_name}')
 
     async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
@@ -306,7 +304,7 @@ class PHXChannelsClient:
                 topic_subscription = self._topic_subscriptions[topic]
                 await topic_subscription.queue.put(phx_message)
 
-    async def subscribe_to_topic(self, topic: Topic, callback: Callable[[ChannelMessage], None]) -> TopicSubscribeResult:
+    async def subscribe_to_topic(self, topic: str, callback: Callable[[ChannelMessage], None]) -> TopicSubscribeResult:
         """Subscribe to a topic with the given callback"""
         
         # Check if topic is already subscribed
@@ -321,13 +319,12 @@ class PHXChannelsClient:
             name=topic,
             callback=callback,
             queue=topic_queue,
-            subscription_result=subscription_result_future
+            subscription_result=subscription_result_future,
+            process_topic_messages_task=self._loop.create_task(
+                self._process_topic_messages(topic)
+            )
         )
         
-        # Start the topic message processor task
-        topic_subscription.process_topic_messages_task = self._loop.create_task(
-            self._process_topic_messages(topic_subscription)
-        )
         
         # Add to subscriptions dictionary
         self._topic_subscriptions[topic] = topic_subscription
