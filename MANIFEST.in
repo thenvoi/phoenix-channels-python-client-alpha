@@ -1,0 +1,3 @@
+include README.md
+include LICENSE
+recursive-include phoenix_channels_python_client *.py
