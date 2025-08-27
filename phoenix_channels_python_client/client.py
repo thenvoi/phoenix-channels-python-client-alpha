@@ -7,7 +7,7 @@ import inspect
 from logging import Logger
 import signal
 from types import TracebackType
-from typing import Awaitable, cast, Optional, Type, Union
+from typing import Awaitable, Callable, cast, Optional, Type, Union
 from urllib.parse import urlencode
 from websockets import ClientConnection
 
@@ -214,23 +214,12 @@ class PHXChannelsClient:
             self.logger.debug(f'Processing message - {phx_message=}')
             topic = phx_message.topic
 
+    async def subscribe_to_topic(self, topic: Topic,callback: Callable[[ChannelMessage], None]) -> None:
+        status_updated_event = self.register_topic_subscription(topic)
+        topic_join_message = make_message(event=PHXEvent.join, topic=topic)
+        await self._send_message(self.connection, topic_join_message)
+        await asyncio.sleep(10)
 
-
-    async def _subscribe_to_registered_topics(self, websocket: ClientConnection) -> None:
-        self._topic_registration_task = self._loop.create_task(self.process_topic_registration_responses())
-
-        registration_messages = []
-        for topic, topic_registration_config in self._topic_registration_status.items():
-            self.logger.info(f'Creating subscribe message for {topic=}')
-            topic_join_message = make_message(event=PHXEvent.join, topic=topic)
-
-            topic_registration_config.connection_ref = topic_join_message.ref
-            registration_messages.append(topic_join_message)
-
-        # Send the topic join message
-        send_websocket_message = partial(self._send_message, websocket)
-        self.logger.info('Sending all topic subscribe messages!')
-        await asyncio.gather(*map(send_websocket_message, registration_messages))
 
     async def _start_processing(self) -> None:
         # self._loop.add_signal_handler(signal.SIGTERM, partial(self.shutdown, reason='SIGTERM'))
