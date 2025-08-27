@@ -2,7 +2,7 @@ class PHXClientError(Exception):
     pass
 
 
-class PHXTopicTooManyRegistrationsError(PHXClientError):
+class PHXTopicError(PHXClientError):
     pass
 
 
