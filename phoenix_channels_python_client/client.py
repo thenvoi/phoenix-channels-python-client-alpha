@@ -10,7 +10,7 @@ from websockets import ClientConnection
 from websockets import connect
 
 from phoenix_channels_python_client import json_handler
-from phoenix_channels_python_client.exceptions import PHXConnectionError, PHXTopicTooManyRegistrationsError
+from phoenix_channels_python_client.exceptions import PHXConnectionError, PHXTopicError
 from phoenix_channels_python_client.phx_messages import (
     ChannelMessage,
     PHXEvent,
@@ -156,6 +156,46 @@ class PHXChannelsClient:
         except Exception as e:
             self.logger.exception(f'Error processing ongoing messages for {topic.name}: {e}')
 
+    async def _process_leave_response(self, topic_name: str, leave_result_future) -> None:
+        """Process the server response to a leave message"""
+        topic = self._topic_subscriptions.get(topic_name)
+        if not topic:
+            self.logger.warning(f'Topic {topic_name} not found during leave processing')
+            return
+        
+        self.logger.debug(f'Waiting for leave response for topic {topic.name}')
+        
+        try:
+            # Wait for the leave response message
+            response_message = await topic.queue.get()
+            topic.queue.task_done()
+            self.logger.debug(f'Got leave response for topic {topic.name}: {response_message}')
+            
+            # Check if it's a successful leave reply
+            is_leave_success = (
+                hasattr(response_message, 'event') and 
+                response_message.event == PHXEvent.reply and
+                response_message.payload.get('status') == 'ok'
+            )
+            
+            if is_leave_success:
+                # Successfully left topic
+                result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, response_message)
+                if not leave_result_future.done():
+                    leave_result_future.set_result(result)
+                self.logger.info(f'Successfully unsubscribed from topic {topic.name}')
+            else:
+                # Failed to leave topic or unexpected message
+                result = TopicSubscribeResult(SubscriptionStatus.FAILED, response_message)
+                if not leave_result_future.done():
+                    leave_result_future.set_result(result)
+                self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {response_message.payload if hasattr(response_message, "payload") else response_message}')
+                
+        except Exception as e:
+            self.logger.exception(f'Error processing leave response for {topic.name}: {e}')
+            if not leave_result_future.done():
+                leave_result_future.set_exception(e)
+
     def _unregister_topic(self, topic_name: str) -> None:
         """Unregister a topic subscription"""
         if topic_name in self._topic_subscriptions:
@@ -186,7 +226,7 @@ class PHXChannelsClient:
         """Subscribe to a topic with the given callback"""
         
         if topic in self._topic_subscriptions:
-            raise PHXTopicTooManyRegistrationsError(f'Topic {topic} already subscribed')
+            raise PHXTopicError(f'Topic {topic} already subscribed')
         
         topic_queue = Queue()
         subscription_result_future = self._loop.create_future()
@@ -211,6 +251,43 @@ class PHXChannelsClient:
         except Exception as e:
             self._unregister_topic(topic)
             raise
+
+    async def unsubscribe_from_topic(self, topic: str) -> TopicSubscribeResult:
+        """Unsubscribe from a topic"""
+        
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        
+        # Create a future to wait for the leave response
+        leave_result_future = self._loop.create_future()
+        
+        # Cancel the existing message processing task
+        if topic_subscription.process_topic_messages_task:
+            topic_subscription.process_topic_messages_task.cancel()
+        
+        # Create a new task to handle the leave response
+        leave_response_task = self._loop.create_task(
+            self._process_leave_response(topic, leave_result_future)
+        )
+        
+        # Update the subscription with the new task
+        topic_subscription.process_topic_messages_task = leave_response_task
+        
+        # Send leave message
+        topic_leave_message = make_message(event=PHXEvent.leave, topic=topic)
+        await self._send_message(self.connection, topic_leave_message)
+        
+        try:
+            result = await leave_result_future
+            return result
+        except Exception as e:
+            self.logger.error(f'Error during unsubscribe from {topic}: {e}')
+            raise
+        finally:
+            # Always clean up the subscription
+            self._unregister_topic(topic)
 
 
     async def _start_processing(self) -> None:
