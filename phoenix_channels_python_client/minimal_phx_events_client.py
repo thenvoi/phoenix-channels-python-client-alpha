@@ -129,60 +129,6 @@ async def main():
         async with PHXChannelsClient(ws_url_with_auth) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
             
-            # task_topic = Topic(f"tasks:{user_id}")
-            # room_participants_topic = Topic(f"room_participants:{room_id}")
-            # user_rooms_topic = Topic(f"user_rooms:{user_id}")
-            
-            # logger.debug(f"Registering topic subscriptions...")
-            # client.register_topic_subscription(task_topic)
-            # client.register_topic_subscription(room_participants_topic)
-            # client.register_topic_subscription(user_rooms_topic)
-            # logger.debug("Topic subscriptions registered successfully")
-            
-            # Register event handlers
-            # logger.debug("Registering event handlers...")
-            
-            # client.register_event_handler(
-            #     event=Event("task_created"),
-            #     handlers=[message_handler]
-            # )
-            
-            # client.register_event_handler(
-            #     event=Event("task_updated"),
-            #     handlers=[message_handler]
-            # )
-            
-            
-            # client.register_event_handler(
-            #     event=Event("participant_added"),
-            #     handlers=[participant_added_handler]
-            # )
-            
-            # client.register_event_handler(
-            #     event=Event("participant_removed"), 
-            #     handlers=[participant_removed_handler]
-            # )
-            
-            # client.register_event_handler(
-            #     event=Event("room_added"),
-            #     handlers=[room_added_handler]
-            # )
-            
-            # client.register_event_handler(
-            #     event=Event("room_removed"),
-            #     handlers=[room_removed_handler]
-            # )
-            # logger.debug("All event handlers registered successfully")
-            
-            # logger.info("🎧 Listening for events... (Press Ctrl+C to stop)")
-            # logger.info(f"   Subscribed to:")
-            # logger.info(f"     • tasks:{user_id} - task_created, task_updated")
-            # logger.info(f"     • room_participants:{room_id} - participant_added, participant_removed")
-            # logger.info(f"     • user_rooms:{user_id} - room_added, room_removed")
-            # logger.info("-" * 50)
-            
-            # logger.debug("Starting message processing...")
-            # await client.start_processing()
             
     except Exception as e:
         logger.error(f"❌ Connection failed: {e}")

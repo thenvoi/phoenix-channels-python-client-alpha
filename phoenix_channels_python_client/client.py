@@ -9,12 +9,12 @@ import signal
 from types import TracebackType
 from typing import Awaitable, cast, Optional, Type, Union
 from urllib.parse import urlencode
-from websockets.legacy import client
+from websockets import ClientConnection
 
 from websockets import connect
 
 from phoenix_channels_python_client import json_handler
-from phoenix_channels_python_client.exceptions import PHXTopicTooManyRegistrationsError, TopicClosedError
+from phoenix_channels_python_client.exceptions import PHXConnectionError, PHXTopicTooManyRegistrationsError, TopicClosedError
 from phoenix_channels_python_client.phx_messages import (
     ChannelEvent,
     ChannelHandlerFunction,
@@ -50,11 +50,18 @@ class PHXChannelsClient:
         self._registration_queue = Queue()
         self._topic_registration_task = None
         self._loop = event_loop or asyncio.get_event_loop()
+        self._message_routing_task=None
 
     async def __aenter__(self) -> 'PHXChannelsClient':
         self.logger.debug('Entering PHXChannelsClient context')
-        self.connection = await connect(self.channel_socket_url)
-        return self
+        try:
+            self.connection = await connect(self.channel_socket_url)
+            self.logger.debug('Successfully connected to Phoenix WebSocket server')
+            self._message_routing_task = self._loop.create_task(self._start_processing())
+            return self
+        except Exception as e:
+            self.logger.error(f'Failed to connect to Phoenix WebSocket server: {e}')
+            raise PHXConnectionError(f'Failed to connect to {self.channel_socket_url}: {e}') from e
 
     async def __aexit__(
         self,
@@ -65,7 +72,7 @@ class PHXChannelsClient:
         self.logger.debug('Leaving PHXChannelsClient context')
         self.shutdown('Leaving PHXChannelsClient context')
 
-    async def _send_message(self, websocket: client.WebSocketClientProtocol, message: ChannelMessage) -> None:
+    async def _send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
         self.logger.debug(f'Serialising {message=} to JSON')
         json_message = json_handler.dumps(message)
 
@@ -130,9 +137,6 @@ class PHXChannelsClient:
     async def shutdown(
         self,
         reason: str,
-        websocket: Optional[client.WebSocketClientProtocol] = None,
-        executor_pool: Optional[Executor] = None,
-        wait_for_completion: bool = True,
     ) -> None:
         self.logger.info(f'Event loop shutting down! {reason=}')
 
@@ -200,38 +204,19 @@ class PHXChannelsClient:
 
         return status_updated_event
 
-    async def process_websocket_messages(self, websocket: client.WebSocketClientProtocol) -> None:
+    async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
+        print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
-        async for socket_message in websocket:
+        async for socket_message in self.connection:
+            print(socket_message)
             phx_message = self._parse_message(socket_message)
             self.logger.debug(f'Processing message - {phx_message=}')
-            event = phx_message.event
+            topic = phx_message.topic
 
-            if event == PHXEvent.close:
-                self.logger.info(f'Got Phoenix event {event} shutting down - {phx_message=}')
-                raise TopicClosedError(topic=phx_message.topic, reason='Upstream closed')
 
-            if event == PHXEvent.error:
-                # Error happened in Elixir
-                self.logger.error(f'Got Phoenix event {event} shutting down - {phx_message=}')
-                # Hard exit if the server closes or errors
-                raise TopicClosedError(topic=phx_message.topic, reason='Upstream error')
 
-            # Push message into registration queue if appropriate
-            if topic_registration_config := self._topic_registration_status.get(phx_message.topic):  # noqa: SIM102
-                if event == PHXEvent.reply and not topic_registration_config.status_updated_event.is_set():
-                    await self._registration_queue.put(phx_message)
-
-            event_handler_config = self._event_handler_config.get(event)
-            if event_handler_config is None:
-                self.logger.debug(f'Ignoring {phx_message=} - no event handlers registered')
-                continue
-
-            self.logger.debug(f'Submitting message to {event=} queue - {phx_message=}')
-            await event_handler_config.queue.put(phx_message)
-
-    async def _subscribe_to_registered_topics(self, websocket: client.WebSocketClientProtocol) -> None:
+    async def _subscribe_to_registered_topics(self, websocket: ClientConnection) -> None:
         self._topic_registration_task = self._loop.create_task(self.process_topic_registration_responses())
 
         registration_messages = []
@@ -247,29 +232,9 @@ class PHXChannelsClient:
         self.logger.info('Sending all topic subscribe messages!')
         await asyncio.gather(*map(send_websocket_message, registration_messages))
 
-    async def start_processing(self, executor_pool: Optional[Executor] = None) -> None:
-        if not self._topic_registration_status:
-            self.logger.error('No subscribed topics nothing to do here - ending processing!')
-            return
+    async def _start_processing(self) -> None:
+        # self._loop.add_signal_handler(signal.SIGTERM, partial(self.shutdown, reason='SIGTERM'))
+        # self._loop.add_signal_handler(signal.SIGINT, partial(self.shutdown, reason='Keyboard Interrupt'))
 
-        self.logger.debug('Creating the executor pool to use for processing registered handlers')
-        self._executor_pool = executor_pool or ThreadPoolExecutor()
 
-        with self._executor_pool as pool:
-            self.logger.debug('Connecting to websocket')
-
-            async with client.connect(self.channel_socket_url) as websocket:
-                # Close the connection when receiving SIGTERM
-                shutdown_handler = partial(
-                    self.shutdown,
-                    websocket=websocket,
-                    executor_pool=pool,
-                    wait_for_completion=False,
-                )
-                self._loop.add_signal_handler(signal.SIGTERM, partial(shutdown_handler, reason='SIGTERM'))
-                self._loop.add_signal_handler(signal.SIGINT, partial(shutdown_handler, reason='Keyboard Interrupt'))
-
-                await self._subscribe_to_registered_topics(websocket)
-
-                self._client_start_event.set()
-                await self.process_websocket_messages(websocket)
+        await self.process_websocket_messages()
