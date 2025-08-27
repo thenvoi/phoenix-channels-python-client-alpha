@@ -167,8 +167,6 @@ class PHXChannelsClient:
 
     async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
-        print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-
         async for socket_message in self.connection:
             print(socket_message)
             phx_message = self._parse_message(socket_message)
