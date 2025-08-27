@@ -1,2 +1,0 @@
-def nothing():
-    print("nothing")
