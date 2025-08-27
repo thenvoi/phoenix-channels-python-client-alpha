@@ -24,7 +24,7 @@ from phoenix_channels_python_client.phx_messages import (
     PHXEvent,
     Topic,
 )
-from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicRegistration, TopicSubscribeResult, TopicSubscription
+from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicSubscribeResult, TopicSubscription
 from phoenix_channels_python_client.utils import make_message
 
 
@@ -32,11 +32,9 @@ class PHXChannelsClient:
     channel_socket_url: str
     logger: Logger
 
-    _topic_registration_status: dict[Topic, TopicRegistration]
     _topic_subscriptions: dict[Topic, TopicSubscription]
     _loop: AbstractEventLoop
     _executor_pool: Optional[Executor]
-    _registration_queue: Queue
 
     def __init__(
         self,
@@ -46,10 +44,7 @@ class PHXChannelsClient:
         self.logger = logging.getLogger(__name__)
         self.channel_socket_url = channel_socket_url
         self.connection = None
-        self._topic_registration_status = {}
         self._topic_subscriptions = {}
-        self._registration_queue = Queue()
-        self._topic_registration_task = None
         self._loop = event_loop or asyncio.get_event_loop()
         self._message_routing_task=None
 
@@ -144,8 +139,7 @@ class PHXChannelsClient:
         if self.connection and not self.connection.closed:
             await self.connection.close()
 
-        if self._topic_registration_task is not None:
-            self._topic_registration_task.cancel()
+
         
         # Cancel all topic subscription tasks
         for topic, subscription in self._topic_subscriptions.items():
@@ -181,37 +175,9 @@ class PHXChannelsClient:
             # otherwise, add them to the default handlers
             handler_config.default_handlers.extend(handlers)
 
-    async def process_topic_registration_responses(self) -> None:
-        while True:
-            phx_message = await self._registration_queue.get()
 
-            topic = phx_message.topic
-            self.logger.info(f'Got topic {topic} join reply {phx_message=}')
 
-            status = SubscriptionStatus.SUCCESS if phx_message.payload['status'] == 'ok' else SubscriptionStatus.FAILED
-            status_message = 'SUCCEEDED' if status == SubscriptionStatus.SUCCESS else 'FAILED'
-            self.logger.info(f'Topic registration {status_message} - {phx_message=}')
 
-            # Set the topic status map
-            topic_registration = self._topic_registration_status[topic]
-            # Set topic status with the message
-            topic_registration.result = TopicSubscribeResult(status, phx_message)
-            # Notify any waiting tasks that the registration has been finalised and the status can be checked
-            topic_registration.status_updated_event.set()
-            # Tell the queue we've finished processing the current task
-            self._registration_queue.task_done()
-
-    def register_topic_subscription(self, topic: Topic) -> Event:
-        if topic_status := self._topic_registration_status.get(topic):
-            topic_ref = topic_status.connection_ref
-            raise PHXTopicTooManyRegistrationsError(f'Topic {topic} already registered with {topic_ref=}')
-
-        # Create an event to indicate when the reply has been processed
-        status_updated_event = Event()
-
-        self._topic_registration_status[topic] = TopicRegistration(status_updated_event=status_updated_event)
-
-        return status_updated_event
 
     def _set_subscription_result(self, topic_subscription: TopicSubscription, result: TopicSubscribeResult) -> None:
         """Safely set subscription result only if not already done"""
