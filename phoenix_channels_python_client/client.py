@@ -4,7 +4,7 @@ from asyncio import AbstractEventLoop, Queue
 from concurrent.futures import Executor
 from logging import Logger
 from types import TracebackType
-from typing import  Callable, Optional, Type, Union
+from typing import  Callable, Optional, Type, Union, Awaitable
 from websockets import ClientConnection
 
 from websockets import connect
@@ -146,7 +146,7 @@ class PHXChannelsClient:
                 self.logger.debug(f'Processing message for topic {topic.name}: {message}')
                 
                 try:
-                    topic.callback(message)
+                    await topic.async_callback(message)
                 except Exception as e:
                     self.logger.exception(f'Error in topic callback for {topic.name}: {e}')
                 
@@ -222,8 +222,8 @@ class PHXChannelsClient:
         """Return a copy of the current topic subscriptions"""
         return self._topic_subscriptions.copy()
 
-    async def subscribe_to_topic(self, topic: str, callback: Callable[[ChannelMessage], None]) -> TopicSubscribeResult:
-        """Subscribe to a topic with the given callback"""
+    async def subscribe_to_topic(self, topic: str, async_callback: Callable[[ChannelMessage], Awaitable[None]]) -> TopicSubscribeResult:
+        """Subscribe to a topic with the given async callback"""
         
         if topic in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} already subscribed')
@@ -233,7 +233,7 @@ class PHXChannelsClient:
         
         topic_subscription = TopicSubscription(
             name=topic,
-            callback=callback,
+            async_callback=async_callback,
             queue=topic_queue,
             subscription_result=subscription_result_future,
             process_topic_messages_task=self._loop.create_task(
