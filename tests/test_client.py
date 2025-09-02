@@ -51,5 +51,5 @@ async def test_subscribe_to_invalid_topic(phoenix_server):
         with pytest.raises(PHXTopicError) as exc_info:
             await client.subscribe_to_topic("invalid-topic", test_callback)
         
-        # Verify the exception message contains "invalid topic"
-        assert "invalid topic" in str(exc_info.value).lower()
+        # Verify the exception message contains "unmatched topic"
+        assert "unmatched topic" in str(exc_info.value).lower()

@@ -85,9 +85,9 @@ async def main():
         logger.debug("Attempting to connect to Phoenix WebSocket...")
         async with PHXChannelsClient(ws_url_with_auth) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
-            await client.subscribe_to_topic("room_participants:9b51e799-0768-4bc3-881f-ccadbb1b4ea9", lambda message: print(message))
-            print(client.get_current_subscriptions())
-            await asyncio.sleep(10)
+            await client.subscribe_to_topic("room_prticipants:9b51e799-0768-4bc3-881f-ccadbb1b4ea9", lambda message: print(message))
+            # print(client.get_current_subscriptions())
+            await asyncio.sleep(1000)
             await client.unsubscribe_from_topic("room_participants:9b51e799-0768-4bc3-881f-ccadbb1b4ea9")
             print(client.get_current_subscriptions())
             await asyncio.sleep(10)
