@@ -53,3 +53,25 @@ async def test_subscribe_to_invalid_topic(phoenix_server):
         
         # Verify the exception message contains "unmatched topic"
         assert "unmatched topic" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_to_already_subscribed_topic(phoenix_server):
+    """Test subscribing to a topic that is already subscribed should raise PHXTopicError"""
+    # Connect to the server
+    async with PHXChannelsClient(phoenix_server.url) as client:
+        # Mock callback for received messages
+        async def test_callback(message):
+            print(f"Received message: {message}")
+        
+        # First, subscribe to a valid topic successfully
+        result = await client.subscribe_to_topic("test-topic", test_callback)
+        assert result.status == SubscriptionStatus.SUCCESS
+        
+        # Now try to subscribe to the same topic again - should raise PHXTopicError
+        with pytest.raises(PHXTopicError) as exc_info:
+            await client.subscribe_to_topic("test-topic", test_callback)
+        
+        # Verify the exception message matches the expected format
+        expected_message = "Topic test-topic already subscribed"
+        assert str(exc_info.value) == expected_message
