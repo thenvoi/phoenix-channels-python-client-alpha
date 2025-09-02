@@ -1,6 +1,4 @@
-import asyncio
 import json
-import pytest
 import pytest_asyncio
 import websockets
 from websockets import serve
@@ -13,7 +11,6 @@ class FakePhoenixServer:
         self.port = port
         self.server = None
         self.clients = set()
-        # Define valid topics - current test uses "test-topic" so we'll allow that
         self.valid_topics = {
             "test-topic",
         }
@@ -28,7 +25,7 @@ class FakePhoenixServer:
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            self.clients.discard(websocket)
+            self.clients.remove(websocket)
     
     def is_valid_topic(self, topic):
         """Check if a topic is valid/legal"""
