@@ -56,7 +56,7 @@ class FakePhoenixServer:
                     "topic": topic,
                     "event": "phx_reply",
                     "ref": ref,
-                    "payload": {"status": "error", "response": {"reason": "Topic does not exist"}}
+                    "payload": {"status": "error", "response": {"reason": "unmatched topic"}}
                 }
             await websocket.send(json.dumps(reply))
         elif event == "phx_leave":

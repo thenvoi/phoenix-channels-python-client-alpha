@@ -127,9 +127,15 @@ class PHXChannelsClient:
                 await self._process_ongoing_messages(topic)
             else:
                 # Failed to join topic or unexpected message
-                result = TopicSubscribeResult(SubscriptionStatus.FAILED, first_message)
-                self._set_subscription_result(topic, result)
-                self.logger.error(f'Failed to subscribe to topic {topic.name}: {first_message.payload if hasattr(first_message, "payload") else first_message}')
+                error_message = "invalid topic"
+                if hasattr(first_message, 'payload') and isinstance(first_message.payload, dict):
+                    response = first_message.payload.get('response', {})
+                    if isinstance(response, dict) and 'reason' in response:
+                        error_message = response['reason']
+                
+                error = PHXTopicError(error_message)
+                self._set_subscription_error(topic, error)
+                self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
                 self._unregister_topic(topic.name)
                 
         except Exception as e:
@@ -208,7 +214,9 @@ class PHXChannelsClient:
     async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
         async for socket_message in self.connection:
+            print('===============================================')
             print(socket_message)
+            print('===============================================')
             phx_message = self._parse_message(socket_message)
             self.logger.debug(f'Processing message - {phx_message=}')
             topic = phx_message.topic
