@@ -5,25 +5,18 @@ from phoenix_channels_python_client.exceptions import PHXTopicError
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_existing_topic(phoenix_server):
-    """Test subscribing to a topic that exists on the server"""
-    # 1. WebSocket server is already running via fixture
+async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoenix_server):
     
-    # 2. Connect to it from the client
     async with PHXChannelsClient(phoenix_server.url) as client:
-        # Mock callback for received messages
         async def test_callback(message):
             print(f"Received message: {message}")
         
-        # 3. Subscribe to a test topic and verify response
         result = await client.subscribe_to_topic("test-topic", test_callback)
         
-        # Assert the reply is the expected reply (successful)
         assert result.status == SubscriptionStatus.SUCCESS
         assert result.result_message.event.value == "phx_reply"
         assert result.result_message.payload["status"] == "ok"
         
-        # Assert the topic was added to subscriptions with success status
         subscriptions = client.get_current_subscriptions()
         assert "test-topic" in subscriptions
         
@@ -39,39 +32,51 @@ async def test_subscribe_to_existing_topic(phoenix_server):
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_invalid_topic(phoenix_server):
-    """Test subscribing to an invalid topic should raise PHXTopicError"""
-    # Connect to the server
+async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_unmatched_topic(phoenix_server):
     async with PHXChannelsClient(phoenix_server.url) as client:
-        # Mock callback for received messages
         async def test_callback(message):
             print(f"Received message: {message}")
         
-        # Try to subscribe to an invalid topic - should raise PHXTopicError
         with pytest.raises(PHXTopicError) as exc_info:
             await client.subscribe_to_topic("invalid-topic", test_callback)
         
-        # Verify the exception message contains "unmatched topic"
         assert "unmatched topic" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_already_subscribed_topic(phoenix_server):
-    """Test subscribing to a topic that is already subscribed should raise PHXTopicError"""
-    # Connect to the server
+async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_already_subscribed_topic(phoenix_server):
     async with PHXChannelsClient(phoenix_server.url) as client:
-        # Mock callback for received messages
         async def test_callback(message):
             print(f"Received message: {message}")
         
-        # First, subscribe to a valid topic successfully
         result = await client.subscribe_to_topic("test-topic", test_callback)
         assert result.status == SubscriptionStatus.SUCCESS
         
-        # Now try to subscribe to the same topic again - should raise PHXTopicError
         with pytest.raises(PHXTopicError) as exc_info:
             await client.subscribe_to_topic("test-topic", test_callback)
         
-        # Verify the exception message matches the expected format
         expected_message = "Topic test-topic already subscribed"
         assert str(exc_info.value) == expected_message
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_from_topic_succeeds_when_unsubscribing_from_subscribed_topic(phoenix_server):
+    """Test that unsubscribe_from_topic succeeds when unsubscribing from a subscribed topic"""
+    async with PHXChannelsClient(phoenix_server.url) as client:
+        async def test_callback(message):
+            print(f"Received message: {message}")
+        
+        subscribe_result = await client.subscribe_to_topic("test-topic", test_callback)
+        assert subscribe_result.status == SubscriptionStatus.SUCCESS
+        
+        subscriptions = client.get_current_subscriptions()
+        assert "test-topic" in subscriptions
+        
+        unsubscribe_result = await client.unsubscribe_from_topic("test-topic")
+        
+        assert unsubscribe_result.status == SubscriptionStatus.SUCCESS
+        assert unsubscribe_result.result_message.event.value == "phx_reply"
+        assert unsubscribe_result.result_message.payload["status"] == "ok"
+        
+        subscriptions = client.get_current_subscriptions()
+        assert "test-topic" not in subscriptions
