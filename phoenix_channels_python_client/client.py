@@ -14,7 +14,7 @@ from phoenix_channels_python_client.phx_messages import (
     ChannelMessage,
     PHXEvent,
 )
-from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicSubscribeResult, TopicSubscription
+from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicSubscribeResult, TopicSubscription, ProcessingMode
 from phoenix_channels_python_client.utils import make_message
 
 
@@ -98,107 +98,133 @@ class PHXChannelsClient:
             topic_subscription.subscription_result.set_exception(error)
 
     async def _process_topic_messages(self, topic_name: str) -> None:
-        """Process messages for a specific topic subscription"""
-        topic=self._topic_subscriptions[topic_name]
+        """Process messages for a specific topic subscription with three distinct modes"""
+        topic = self._topic_subscriptions[topic_name]
         self.logger.debug(f'Starting topic message processor for {topic.name}')
         
         try:
-            # Wait for the first message which should be the join reply
-            first_message = await topic.queue.get()
-            topic.queue.task_done()
-            self.logger.debug(f'Got first message for topic {topic.name}: {first_message}')
-            
-            # Check if it's a successful join reply
-            is_join_success = (
-                hasattr(first_message, 'event') and 
-                first_message.event == PHXEvent.reply and
-                first_message.payload.get('status') == 'ok'
-            )
-            
-            if is_join_success:
-                # Successfully joined topic
-                result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, first_message)
-                self._set_subscription_result(topic, result)
-                self.logger.info(f'Successfully subscribed to topic {topic.name}')
+            while True:
+                message = await topic.queue.get()
+                self.logger.debug(f'Got message for topic {topic.name} in mode {topic.processing_mode}: {message}')
                 
-                # Continue processing messages for this topic
-                await self._process_ongoing_messages(topic)
-            else:
-                # Failed to join topic or unexpected message
-                error_message = "invalid topic"
-                if hasattr(first_message, 'payload') and isinstance(first_message.payload, dict):
-                    response = first_message.payload.get('response', {})
-                    if isinstance(response, dict) and 'reason' in response:
-                        error_message = response['reason']
+                # Check for mode transitions based on current state and conditions
+                if topic.processing_mode == ProcessingMode.PROCESSING_NORMAL_MESSAGES and topic.leave_requested.is_set():
+                    # Transition from normal processing to leave mode
+                    self.logger.debug(f'Leave requested for topic {topic.name}, switching to leave mode')
+                    topic.processing_mode = ProcessingMode.PROCESSING_LEAVE
                 
-                error = PHXTopicError(error_message)
-                self._set_subscription_error(topic, error)
-                self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
-                self._unregister_topic(topic.name)
+                # Process message based on current mode and handle transitions inline
+                if topic.processing_mode == ProcessingMode.WAITING_FOR_JOIN_RESPONSE:
+                    join_success = await self._handle_join_response_mode(topic, message)
+                    if join_success:
+                        self.logger.debug(f'Switching topic {topic.name} to normal processing mode')
+                        topic.processing_mode = ProcessingMode.PROCESSING_NORMAL_MESSAGES
+                    else:
+                        self.logger.debug(f'Exiting topic processor for {topic.name} due to join failure')
+                        break
+                        
+                elif topic.processing_mode == ProcessingMode.PROCESSING_NORMAL_MESSAGES:
+                    await self._handle_normal_message_mode(topic, message)
+                    # Continue processing in normal mode
+                    
+                elif topic.processing_mode == ProcessingMode.PROCESSING_LEAVE:
+                    leave_completed = await self._handle_leave_mode(topic, message)
+                    if leave_completed:
+                        self.logger.debug(f'Exiting topic processor for {topic.name} - leave completed')
+                        break
+                    # Continue draining queue if not completed
+                
+                topic.queue.task_done()
                 
         except Exception as e:
             self.logger.exception(f'Error in topic message processor for {topic.name}: {e}')
             self._set_subscription_error(topic, e)
             self._unregister_topic(topic.name)
 
-    async def _process_ongoing_messages(self, topic: TopicSubscription) -> None:
-        """Process ongoing messages for a successfully subscribed topic"""
+    async def _handle_join_response_mode(self, topic: TopicSubscription, message: ChannelMessage) -> bool:
+        """Handle the initial join response message. Returns True if join succeeded, False if failed."""
+        self.logger.debug(f'Handling join response for topic {topic.name}: {message}')
         
-        try:
-            while True:
-                message = await topic.queue.get()
-                self.logger.debug(f'Processing message for topic {topic.name}: {message}')
-                
-                try:
-                    await topic.async_callback(message)
-                except Exception as e:
-                    self.logger.exception(f'Error in topic callback for {topic.name}: {e}')
-                
-                topic.queue.task_done()
-        except asyncio.CancelledError:
-            self.logger.debug(f'Topic message processor for {topic.name} cancelled')
-        except Exception as e:
-            self.logger.exception(f'Error processing ongoing messages for {topic.name}: {e}')
-
-    async def _process_leave_response(self, topic_name: str, leave_result_future) -> None:
-        """Process the server response to a leave message"""
-        topic = self._topic_subscriptions.get(topic_name)
-        if not topic:
-            self.logger.warning(f'Topic {topic_name} not found during leave processing')
-            return
+        # Check if it's a successful join reply
+        is_join_success = (
+            hasattr(message, 'event') and 
+            message.event == PHXEvent.reply and
+            message.payload.get('status') == 'ok'
+        )
         
-        self.logger.debug(f'Waiting for leave response for topic {topic.name}')
-        
-        try:
-            # Wait for the leave response message
-            response_message = await topic.queue.get()
-            topic.queue.task_done()
-            self.logger.debug(f'Got leave response for topic {topic.name}: {response_message}')
+        if is_join_success:
+            # Successfully joined topic
+            result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, message)
+            self._set_subscription_result(topic, result)
+            self.logger.info(f'Successfully subscribed to topic {topic.name}')
+            return True
+        else:
+            # Failed to join topic or unexpected message
+            error_message = "invalid topic"
+            if hasattr(message, 'payload') and isinstance(message.payload, dict):
+                response = message.payload.get('response', {})
+                if isinstance(response, dict) and 'reason' in response:
+                    error_message = response['reason']
             
-            # Check if it's a successful leave reply
-            is_leave_success = (
-                hasattr(response_message, 'event') and 
-                response_message.event == PHXEvent.reply and
-                response_message.payload.get('status') == 'ok'
-            )
+            error = PHXTopicError(error_message)
+            self._set_subscription_error(topic, error)
+            self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
+            self._unregister_topic(topic.name)
+            return False
+
+    async def _handle_normal_message_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
+        """Handle normal message processing mode"""
+        self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
+        
+        # Process the message with callback
+        try:
+            # Create a task for the callback to track it
+            topic.current_callback_task = asyncio.create_task(topic.async_callback(message))
+            await topic.current_callback_task
+        except Exception as e:
+            self.logger.exception(f'Error in topic callback for {topic.name}: {e}')
+        finally:
+            topic.current_callback_task = None
+
+    async def _handle_leave_mode(self, topic: TopicSubscription, message: ChannelMessage) -> bool:
+        """Handle leave processing mode. Returns True if leave is completed, False to continue draining."""
+        self.logger.debug(f'Processing message during leave for topic {topic.name}: {message}')
+        
+        # Check if this is the leave response
+        is_leave_response = (
+            hasattr(message, 'event') and 
+            message.event == PHXEvent.reply and
+            hasattr(message, 'payload')
+        )
+        
+        if is_leave_response:
+            # This is the leave response, process it
+            is_leave_success = message.payload.get('status') == 'ok'
             
             if is_leave_success:
-                # Successfully left topic
-                result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, response_message)
-                if not leave_result_future.done():
-                    leave_result_future.set_result(result)
+                result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, message)
                 self.logger.info(f'Successfully unsubscribed from topic {topic.name}')
             else:
-                # Failed to leave topic or unexpected message
-                result = TopicSubscribeResult(SubscriptionStatus.FAILED, response_message)
-                if not leave_result_future.done():
-                    leave_result_future.set_result(result)
-                self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {response_message.payload if hasattr(response_message, "payload") else response_message}')
-                
-        except Exception as e:
-            self.logger.exception(f'Error processing leave response for {topic.name}: {e}')
-            if not leave_result_future.done():
-                leave_result_future.set_exception(e)
+                result = TopicSubscribeResult(SubscriptionStatus.FAILED, message)
+                self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {message.payload}')
+            
+            # Wait for current callback to finish if it's still running
+            if topic.current_callback_task and not topic.current_callback_task.done():
+                self.logger.debug(f'Waiting for current callback to finish for topic {topic.name}')
+                try:
+                    await topic.current_callback_task
+                except Exception as e:
+                    self.logger.exception(f'Error waiting for callback to finish for {topic.name}: {e}')
+            
+            # Set the result if the future exists and is not done
+            if topic.leave_result_future and not topic.leave_result_future.done():
+                topic.leave_result_future.set_result(result)
+            
+            return True  # Leave completed
+        else:
+            # Ignore this message (it was in the queue before leave)
+            self.logger.debug(f'Ignoring queued message for leaving topic {topic.name}: {message}')
+            return False  # Continue draining
 
     def _unregister_topic(self, topic_name: str) -> None:
         """Unregister a topic subscription"""
@@ -268,22 +294,14 @@ class PHXChannelsClient:
         
         # Create a future to wait for the leave response
         leave_result_future = self._loop.create_future()
+        topic_subscription.leave_result_future = leave_result_future
         
-        # Cancel the existing message processing task
-        if topic_subscription.process_topic_messages_task:
-            topic_subscription.process_topic_messages_task.cancel()
-        
-        # Create a new task to handle the leave response
-        leave_response_task = self._loop.create_task(
-            self._process_leave_response(topic, leave_result_future)
-        )
-        
-        # Update the subscription with the new task
-        topic_subscription.process_topic_messages_task = leave_response_task
-        
-        # Send leave message
+        # Send leave message first
         topic_leave_message = make_message(event=PHXEvent.leave, topic=topic)
         await self._send_message(self.connection, topic_leave_message)
+        
+        # Signal the existing task to start leave process
+        topic_subscription.leave_requested.set()
         
         try:
             result = await leave_result_future

@@ -1,7 +1,7 @@
-from asyncio import  Queue, Task, Future
-from dataclasses import dataclass
+from asyncio import  Queue, Task, Future, Event
+from dataclasses import dataclass, field
 from enum import IntEnum, unique
-from typing import  Callable, Awaitable
+from typing import  Callable, Awaitable, Optional
 
 from phoenix_channels_python_client.phx_messages import PHXEventMessage, ChannelMessage
 
@@ -10,6 +10,16 @@ from phoenix_channels_python_client.phx_messages import PHXEventMessage, Channel
 class SubscriptionStatus(IntEnum):
     FAILED = 0
     SUCCESS = 1
+
+
+@unique
+class ProcessingMode(IntEnum):
+    WAITING_FOR_JOIN_RESPONSE = 0
+    PROCESSING_NORMAL_MESSAGES = 1
+    PROCESSING_LEAVE = 2
+
+
+
 
 
 @dataclass(frozen=True)
@@ -26,3 +36,9 @@ class TopicSubscription:
     queue: Queue[ChannelMessage]
     subscription_result: Future[TopicSubscribeResult]
     process_topic_messages_task: Task[None] = None
+    # Signaling mechanism for leave requests
+    leave_requested: Event = field(default_factory=Event)
+    leave_result_future: Optional[Future[TopicSubscribeResult]] = None
+    # Processing state management
+    processing_mode: ProcessingMode = ProcessingMode.WAITING_FOR_JOIN_RESPONSE
+    current_callback_task: Optional[Task[None]] = None
