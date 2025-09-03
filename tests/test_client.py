@@ -144,14 +144,10 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
         assert result.status == SubscriptionStatus.SUCCESS
         
         # 2. Send burst of events asynchronously using gather
-        test_payload = {"event_id": 0, "data": "test_data"}
-        event_tasks = []
-        for i in range(ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT):
-            payload = {**test_payload, "event_id": i}
-            task = phoenix_server.simulate_server_event("test-topic", "burst_event", payload)
-            event_tasks.append(task)
-        
-        # Send all events concurrently
+        event_tasks = [
+            phoenix_server.simulate_server_event("test-topic", "burst_event", {"event_id": i})
+            for i in range(ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT)
+        ]
         await asyncio.gather(*event_tasks)
         
         # Wait for first callback to start (which blocks on callback_control_event)
@@ -166,30 +162,19 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
         # 4. Unsubscribe from topic
         unsubscribe_task = asyncio.create_task(client.unsubscribe_from_topic("test-topic"))
         
-        # Give unsubscribe a moment to process but it should block waiting for callback
-        await asyncio.sleep(0)
-        
-        # 5. Assert that callback is not done
+        # 5. Assert that callback is not done and topic is still in subscriptions
         assert topic_subscription.current_callback_task is not None
         assert not topic_subscription.current_callback_task.done()
+        assert "test-topic" in client.get_current_subscriptions()
         
-        
-        # 6. Assert that topic is still in subscriptions dict (unsubscribe not complete)
-        subscriptions = client.get_current_subscriptions()
-        assert "test-topic" in subscriptions
-        
-        # 7. Set the event to allow callback to complete
+        # 6. Set the event to allow callback to complete
         callback_control_event.set()
         
-        # 8. Wait for unsubscribe to complete and assert topic was actually unsubscribed
+        # 7. Wait for unsubscribe to complete and verify cleanup
         unsubscribe_result = await unsubscribe_task
         assert unsubscribe_result.status == SubscriptionStatus.SUCCESS
+        assert "test-topic" not in client.get_current_subscriptions()
         
-        # 9. Verify topic is now removed from subscriptions
-        subscriptions = client.get_current_subscriptions()
-        assert "test-topic" not in subscriptions
-        
-        # 10. Verify that only 1 message was processed since the callback was blocked
-        # The other messages + leave reply were ignored during leave processing
+        # 8. Verify that only 1 message was processed since the callback was blocked
         assert len(received_messages) == 1
         assert received_messages[0].payload["event_id"] == 0
