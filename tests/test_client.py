@@ -120,3 +120,78 @@ async def test_callback_receives_message_when_server_sends_message_to_subscribed
         else:
             assert message.event == "new_message"
         assert message.payload == test_payload
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_from_topic_waits_for_callback_completion_when_processing_event_burst(phoenix_server: FakePhoenixServer):
+    """Test unsubscribe behavior during callback processing with a burst of events"""
+    
+    # Arbitrary number of events that will simulate ignoring them until reaching the leave event
+    ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT = 10
+    
+    received_messages = []
+    callback_control_event = asyncio.Event()  # Controls when callback can complete
+    first_callback_started = asyncio.Event()  # Signals when first callback has started
+    
+    async def test_callback(message):
+        received_messages.append(message)
+        if len(received_messages) == 1:  # Only set on first callback
+            first_callback_started.set()
+        # Wait for test to signal callback can complete
+        await callback_control_event.wait()
+    
+    async with PHXChannelsClient(phoenix_server.url) as client:
+        # 1. Subscribe to topic successfully
+        result = await client.subscribe_to_topic("test-topic", test_callback)
+        assert result.status == SubscriptionStatus.SUCCESS
+        
+        # 2. Send burst of events asynchronously using gather
+        test_payload = {"event_id": 0, "data": "test_data"}
+        event_tasks = []
+        for i in range(ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT):
+            payload = {**test_payload, "event_id": i}
+            task = phoenix_server.simulate_server_event("test-topic", "burst_event", payload)
+            event_tasks.append(task)
+        
+        # Send all events concurrently
+        await asyncio.gather(*event_tasks)
+        
+        # Wait for first callback to start (which blocks on callback_control_event)
+        await first_callback_started.wait()
+        
+        # 3. Assert that queue size is correct (total events - 1 being processed)
+        subscriptions = client.get_current_subscriptions()
+        assert "test-topic" in subscriptions
+        topic_subscription = subscriptions["test-topic"]
+        assert topic_subscription.queue.qsize() == ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT - 1
+        
+        # 4. Unsubscribe from topic
+        unsubscribe_task = asyncio.create_task(client.unsubscribe_from_topic("test-topic"))
+        
+        # Give unsubscribe a moment to process but it should block waiting for callback
+        await asyncio.sleep(0)
+        
+        # 5. Assert that callback is not done
+        assert topic_subscription.current_callback_task is not None
+        assert not topic_subscription.current_callback_task.done()
+        
+        
+        # 6. Assert that topic is still in subscriptions dict (unsubscribe not complete)
+        subscriptions = client.get_current_subscriptions()
+        assert "test-topic" in subscriptions
+        
+        # 7. Set the event to allow callback to complete
+        callback_control_event.set()
+        
+        # 8. Wait for unsubscribe to complete and assert topic was actually unsubscribed
+        unsubscribe_result = await unsubscribe_task
+        assert unsubscribe_result.status == SubscriptionStatus.SUCCESS
+        
+        # 9. Verify topic is now removed from subscriptions
+        subscriptions = client.get_current_subscriptions()
+        assert "test-topic" not in subscriptions
+        
+        # 10. Verify that only 1 message was processed since the callback was blocked
+        # The other messages + leave reply were ignored during leave processing
+        assert len(received_messages) == 1
+        assert received_messages[0].payload["event_id"] == 0
