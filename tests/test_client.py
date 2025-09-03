@@ -123,10 +123,8 @@ async def test_callback_receives_message_when_server_sends_message_to_subscribed
 
 
 @pytest.mark.asyncio
-async def test_unsubscribe_from_topic_waits_for_callback_completion_when_processing_event_burst(phoenix_server: FakePhoenixServer):
-    """Test unsubscribe behavior during callback processing with a burst of events"""
+async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_ignores_queued_events(phoenix_server: FakePhoenixServer):
     
-    # Arbitrary number of events that will simulate ignoring them until reaching the leave event
     ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT = 10
     
     received_messages = []
