@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from phoenix_channels_python_client.client import PHXChannelsClient
-from phoenix_channels_python_client.topic_subscription import SubscriptionStatus
+
 from phoenix_channels_python_client.exceptions import PHXTopicError
 from conftest import FakePhoenixServer
 
@@ -13,11 +13,8 @@ async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoen
         async def test_callback(message):
             print(f"Received message: {message}")
         
-        result = await client.subscribe_to_topic("test-topic", test_callback)
-        
-        assert result.status == SubscriptionStatus.SUCCESS
-        assert result.result_message.event.value == "phx_reply"
-        assert result.result_message.payload["status"] == "ok"
+        # Subscribe returns None on success, raises exception on failure
+        await client.subscribe_to_topic("test-topic", test_callback)
         
         subscriptions = client.get_current_subscriptions()
         assert "test-topic" in subscriptions
@@ -26,9 +23,9 @@ async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoen
         assert topic_subscription.name == "test-topic"
         assert topic_subscription.async_callback == test_callback
         
-        # Verify subscription result indicates success
-        subscription_result = await topic_subscription.subscription_result
-        assert subscription_result.status == SubscriptionStatus.SUCCESS
+        # Verify subscription is ready
+        assert topic_subscription.subscription_ready.done()
+        assert not topic_subscription.subscription_ready.exception()
         
     # 4. Cleanup happens automatically via context manager
 
@@ -51,8 +48,7 @@ async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_alrea
         async def test_callback(message):
             print(f"Received message: {message}")
         
-        result = await client.subscribe_to_topic("test-topic", test_callback)
-        assert result.status == SubscriptionStatus.SUCCESS
+        await client.subscribe_to_topic("test-topic", test_callback)
         
         with pytest.raises(PHXTopicError) as exc_info:
             await client.subscribe_to_topic("test-topic", test_callback)
@@ -67,17 +63,12 @@ async def test_unsubscribe_from_topic_succeeds_when_unsubscribing_from_subscribe
         async def test_callback(message):
             print(f"Received message: {message}")
         
-        subscribe_result = await client.subscribe_to_topic("test-topic", test_callback)
-        assert subscribe_result.status == SubscriptionStatus.SUCCESS
+        await client.subscribe_to_topic("test-topic", test_callback)
         
         subscriptions = client.get_current_subscriptions()
         assert "test-topic" in subscriptions
         
-        unsubscribe_result = await client.unsubscribe_from_topic("test-topic")
-        
-        assert unsubscribe_result.status == SubscriptionStatus.SUCCESS
-        assert unsubscribe_result.result_message.event.value == "phx_reply"
-        assert unsubscribe_result.result_message.payload["status"] == "ok"
+        await client.unsubscribe_from_topic("test-topic")
         
         subscriptions = client.get_current_subscriptions()
         assert "test-topic" not in subscriptions
@@ -95,8 +86,7 @@ async def test_callback_receives_message_when_server_sends_message_to_subscribed
     
     async with PHXChannelsClient(phoenix_server.url) as client:
         # Subscribe to topic
-        result = await client.subscribe_to_topic("test-topic", test_callback)
-        assert result.status == SubscriptionStatus.SUCCESS
+        await client.subscribe_to_topic("test-topic", test_callback)
         
         test_payload = {"user_id": 123, "message": "Hello from server!"}
         await phoenix_server.simulate_server_event("test-topic", "new_message", test_payload)
@@ -140,8 +130,7 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
     
     async with PHXChannelsClient(phoenix_server.url) as client:
         # 1. Subscribe to topic successfully
-        result = await client.subscribe_to_topic("test-topic", test_callback)
-        assert result.status == SubscriptionStatus.SUCCESS
+        await client.subscribe_to_topic("test-topic", test_callback)
         
         # 2. Send burst of events asynchronously using gather
         event_tasks = [
@@ -162,7 +151,11 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
         # 4. Unsubscribe from topic
         unsubscribe_task = asyncio.create_task(client.unsubscribe_from_topic("test-topic"))
         
-        # 5. Assert that callback is not done and topic is still in subscriptions
+        # Give the unsubscribe task a moment to process and set leave_requested
+        await asyncio.sleep(0)
+        
+        # 5. Assert that leave was requested, callback is not done, and topic is still in subscriptions
+        assert topic_subscription.leave_requested.is_set()
         assert topic_subscription.current_callback_task is not None
         assert not topic_subscription.current_callback_task.done()
         assert "test-topic" in client.get_current_subscriptions()
@@ -171,8 +164,7 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
         callback_control_event.set()
         
         # 7. Wait for unsubscribe to complete and verify cleanup
-        unsubscribe_result = await unsubscribe_task
-        assert unsubscribe_result.status == SubscriptionStatus.SUCCESS
+        await unsubscribe_task
         assert "test-topic" not in client.get_current_subscriptions()
         
         # 8. Verify that only 1 message was processed since the callback was blocked

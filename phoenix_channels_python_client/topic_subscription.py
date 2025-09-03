@@ -1,23 +1,8 @@
 from asyncio import  Queue, Task, Future, Event
 from dataclasses import dataclass, field
-from enum import IntEnum, unique
 from typing import  Callable, Awaitable, Optional
 
-from phoenix_channels_python_client.phx_messages import PHXEventMessage, ChannelMessage
-
-
-@unique
-class SubscriptionStatus(IntEnum):
-    FAILED = 0
-    SUCCESS = 1
-
-
-
-
-@dataclass(frozen=True)
-class TopicSubscribeResult:
-    status: SubscriptionStatus
-    result_message: PHXEventMessage
+from phoenix_channels_python_client.phx_messages import ChannelMessage
 
 
 @dataclass()
@@ -26,10 +11,12 @@ class TopicSubscription:
     name: str
     async_callback: Callable[[ChannelMessage], Awaitable[None]]
     queue: Queue[ChannelMessage]
-    subscription_result: Future[TopicSubscribeResult]
+    # Single future that completes when subscription is established or fails with exception
+    subscription_ready: Future[None]
     process_topic_messages_task: Task[None] = None
     # Signaling mechanism for leave requests
     leave_requested: Event = field(default_factory=Event)
-    leave_result_future: Optional[Future[TopicSubscribeResult]] = None
+    # Future that completes when unsubscribe is done
+    unsubscribe_completed: Optional[Future[None]] = None
     # Current callback task tracking
     current_callback_task: Optional[Task[None]] = None
