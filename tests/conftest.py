@@ -10,28 +10,28 @@ class FakePhoenixServer:
         self.host = host
         self.port = port
         self.server = None
-        self.clients = set()
+        self.client_websocket = None
         self.valid_topics = {
             "test-topic",
         }
         
     async def handler(self, websocket):
         """Handle WebSocket connections and messages"""
-        self.clients.add(websocket)
+        self.client_websocket = websocket
         try:
             async for message in websocket:
                 data = json.loads(message)
-                await self.handle_message(websocket, data)
+                await self.handle_message(data)
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            self.clients.remove(websocket)
+            self.client_websocket = None
     
     def is_valid_topic(self, topic):
         """Check if a topic is valid/legal"""
         return topic in self.valid_topics
     
-    async def handle_message(self, websocket, data):
+    async def handle_message(self, data):
         """Handle incoming messages and send appropriate replies"""
         topic = data.get("topic")
         event = data.get("event")
@@ -55,7 +55,7 @@ class FakePhoenixServer:
                     "ref": ref,
                     "payload": {"status": "error", "response": {"reason": "unmatched topic"}}
                 }
-            await websocket.send(json.dumps(reply))
+            await self.client_websocket.send(json.dumps(reply))
         elif event == "phx_leave":
             # Send successful leave reply
             reply = {
@@ -64,7 +64,18 @@ class FakePhoenixServer:
                 "ref": ref,
                 "payload": {"status": "ok", "response": {}}
             }
-            await websocket.send(json.dumps(reply))
+            await self.client_websocket.send(json.dumps(reply))
+    
+    async def simulate_server_event(self, topic, event, payload):
+        """Simulate a server event being sent to the client for testing purposes"""
+        if self.client_websocket:
+            message = {
+                "topic": topic,
+                "event": event,
+                "ref": None,
+                "payload": payload
+            }
+            await self.client_websocket.send(json.dumps(message))
     
     async def start(self):
         """Start the fake Phoenix server"""
@@ -75,7 +86,7 @@ class FakePhoenixServer:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
-        self.clients.clear()
+        self.client_websocket = None
     
     @property
     def url(self):
