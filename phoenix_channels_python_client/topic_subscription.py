@@ -12,14 +12,6 @@ class SubscriptionStatus(IntEnum):
     SUCCESS = 1
 
 
-@unique
-class ProcessingMode(IntEnum):
-    WAITING_FOR_JOIN_RESPONSE = 0
-    PROCESSING_NORMAL_MESSAGES = 1
-    PROCESSING_LEAVE = 2
-
-
-
 
 
 @dataclass(frozen=True)
@@ -39,6 +31,5 @@ class TopicSubscription:
     # Signaling mechanism for leave requests
     leave_requested: Event = field(default_factory=Event)
     leave_result_future: Optional[Future[TopicSubscribeResult]] = None
-    # Processing state management
-    processing_mode: ProcessingMode = ProcessingMode.WAITING_FOR_JOIN_RESPONSE
+    # Current callback task tracking
     current_callback_task: Optional[Task[None]] = None
