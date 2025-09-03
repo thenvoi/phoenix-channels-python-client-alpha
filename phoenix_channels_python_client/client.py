@@ -14,7 +14,7 @@ from phoenix_channels_python_client.phx_messages import (
     ChannelMessage,
     PHXEvent,
 )
-from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicSubscribeResult, TopicSubscription
+from phoenix_channels_python_client.topic_subscription import TopicSubscription
 from phoenix_channels_python_client.utils import make_message
 
 
@@ -87,15 +87,15 @@ class PHXChannelsClient:
         self._topic_subscriptions.clear()
 
 
-    def _set_subscription_result(self, topic_subscription: TopicSubscription, result: TopicSubscribeResult) -> None:
-        """Safely set subscription result only if not already done"""
-        if not topic_subscription.subscription_result.done():
-            topic_subscription.subscription_result.set_result(result)
+    def _set_subscription_ready(self, topic_subscription: TopicSubscription) -> None:
+        """Safely mark subscription as ready only if not already done"""
+        if not topic_subscription.subscription_ready.done():
+            topic_subscription.subscription_ready.set_result(None)
 
     def _set_subscription_error(self, topic_subscription: TopicSubscription, error: Exception) -> None:
         """Safely set subscription error only if not already done"""
-        if not topic_subscription.subscription_result.done():
-            topic_subscription.subscription_result.set_exception(error)
+        if not topic_subscription.subscription_ready.done():
+            topic_subscription.subscription_ready.set_exception(error)
 
     async def _process_topic_messages(self, topic_name: str) -> None:
         """Process messages for a specific topic subscription with three distinct processing states"""
@@ -107,10 +107,10 @@ class PHXChannelsClient:
                 message = await topic.queue.get()
                 
                 # Determine current state by checking relevant conditions at the start of each iteration
-                subscription_completed = topic.subscription_result.done()
+                subscription_ready = topic.subscription_ready.done()
                 leave_requested = topic.leave_requested.is_set()
                 
-                if not subscription_completed:
+                if not subscription_ready:
                     # We're still waiting for the initial join response
                     current_state = "waiting for join response"
                     join_success = await self._handle_join_response_mode(topic, message)
@@ -153,8 +153,7 @@ class PHXChannelsClient:
         
         if is_join_success:
             # Successfully joined topic
-            result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, message)
-            self._set_subscription_result(topic, result)
+            self._set_subscription_ready(topic)
             self.logger.info(f'Successfully subscribed to topic {topic.name}')
             return True
         else:
@@ -201,10 +200,8 @@ class PHXChannelsClient:
             is_leave_success = message.payload.get('status') == 'ok'
             
             if is_leave_success:
-                result = TopicSubscribeResult(SubscriptionStatus.SUCCESS, message)
                 self.logger.info(f'Successfully unsubscribed from topic {topic.name}')
             else:
-                result = TopicSubscribeResult(SubscriptionStatus.FAILED, message)
                 self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {message.payload}')
             
             # Wait for current callback to finish if it's still running
@@ -215,9 +212,12 @@ class PHXChannelsClient:
                 except Exception as e:
                     self.logger.exception(f'Error waiting for callback to finish for {topic.name}: {e}')
             
-            # Set the result if the future exists and is not done
-            if topic.leave_result_future and not topic.leave_result_future.done():
-                topic.leave_result_future.set_result(result)
+            # Signal unsubscribe completion
+            if topic.unsubscribe_completed and not topic.unsubscribe_completed.done():
+                if is_leave_success:
+                    topic.unsubscribe_completed.set_result(None)
+                else:
+                    topic.unsubscribe_completed.set_exception(PHXTopicError(f'Failed to unsubscribe: {message.payload}'))
             
             return True  # Leave completed
         else:
@@ -255,20 +255,20 @@ class PHXChannelsClient:
         """Return a copy of the current topic subscriptions"""
         return self._topic_subscriptions.copy()
 
-    async def subscribe_to_topic(self, topic: str, async_callback: Callable[[ChannelMessage], Awaitable[None]]) -> TopicSubscribeResult:
+    async def subscribe_to_topic(self, topic: str, async_callback: Callable[[ChannelMessage], Awaitable[None]]) -> None:
         """Subscribe to a topic with the given async callback"""
         
         if topic in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} already subscribed')
         
         topic_queue = Queue()
-        subscription_result_future = self._loop.create_future()
+        subscription_ready_future = self._loop.create_future()
         
         topic_subscription = TopicSubscription(
             name=topic,
             async_callback=async_callback,
             queue=topic_queue,
-            subscription_result=subscription_result_future,
+            subscription_ready=subscription_ready_future,
             process_topic_messages_task=self._loop.create_task(
                 self._process_topic_messages(topic)
             )
@@ -279,14 +279,13 @@ class PHXChannelsClient:
         await self._send_message(self.connection, topic_join_message)
         
         try:
-            result = await subscription_result_future
-            return result
+            await subscription_ready_future  # Just wait for readiness, no return value needed
         except Exception as e:
             self.logger.error(f'Error during subscribe to {topic}: {e}')
             self._unregister_topic(topic)
             raise
 
-    async def unsubscribe_from_topic(self, topic: str) -> TopicSubscribeResult:
+    async def unsubscribe_from_topic(self, topic: str) -> None:
         """Unsubscribe from a topic"""
         
         if topic not in self._topic_subscriptions:
@@ -295,8 +294,8 @@ class PHXChannelsClient:
         topic_subscription = self._topic_subscriptions[topic]
         
         # Create a future to wait for the leave response
-        leave_result_future = self._loop.create_future()
-        topic_subscription.leave_result_future = leave_result_future
+        unsubscribe_completed_future = self._loop.create_future()
+        topic_subscription.unsubscribe_completed = unsubscribe_completed_future
         
         # Send leave message first
         topic_leave_message = make_message(event=PHXEvent.leave, topic=topic)
@@ -306,8 +305,7 @@ class PHXChannelsClient:
         topic_subscription.leave_requested.set()
         
         try:
-            result = await leave_result_future
-            return result
+            await unsubscribe_completed_future  # Just wait for completion, no return value needed
         except Exception as e:
             self.logger.error(f'Error during unsubscribe from {topic}: {e}')
             raise
