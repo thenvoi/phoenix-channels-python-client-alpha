@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from asyncio import AbstractEventLoop, Queue
-from concurrent.futures import Executor
 from logging import Logger
 from types import TracebackType
 from typing import  Callable, Optional, Type, Union, Awaitable
@@ -25,7 +24,6 @@ class PHXChannelsClient:
 
     _topic_subscriptions: dict[str, TopicSubscription]
     _loop: AbstractEventLoop
-    _executor_pool: Optional[Executor]
 
     def __init__(
         self,
@@ -294,13 +292,9 @@ class PHXChannelsClient:
             self.logger.error(f'Error during unsubscribe from {topic}: {e}')
             raise
         finally:
-            # Always clean up the subscription
             self._unregister_topic(topic)
 
 
     async def _start_processing(self) -> None:
-        # self._loop.add_signal_handler(signal.SIGTERM, partial(self.shutdown, reason='SIGTERM'))
-        # self._loop.add_signal_handler(signal.SIGINT, partial(self.shutdown, reason='Keyboard Interrupt'))
-
 
         await self.process_websocket_messages()
