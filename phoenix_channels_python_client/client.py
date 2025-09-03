@@ -234,6 +234,8 @@ class PHXChannelsClient:
                 topic_subscription.process_topic_messages_task.cancel()
             del self._topic_subscriptions[topic_name]
             self.logger.info(f'Unregistered topic {topic_name}')
+        else:
+            self.logger.warning(f'Topic {topic_name} not found in _topic_subscriptions')
 
     async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
@@ -281,6 +283,7 @@ class PHXChannelsClient:
             result = await subscription_result_future
             return result
         except Exception as e:
+            self.logger.error(f'Error during subscribe to {topic}: {e}')
             self._unregister_topic(topic)
             raise
 
