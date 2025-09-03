@@ -14,7 +14,7 @@ from phoenix_channels_python_client.phx_messages import (
     ChannelMessage,
     PHXEvent,
 )
-from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicSubscribeResult, TopicSubscription, ProcessingMode
+from phoenix_channels_python_client.topic_subscription import SubscriptionStatus, TopicSubscribeResult, TopicSubscription
 from phoenix_channels_python_client.utils import make_message
 
 
@@ -98,42 +98,41 @@ class PHXChannelsClient:
             topic_subscription.subscription_result.set_exception(error)
 
     async def _process_topic_messages(self, topic_name: str) -> None:
-        """Process messages for a specific topic subscription with three distinct modes"""
+        """Process messages for a specific topic subscription with three distinct processing states"""
         topic = self._topic_subscriptions[topic_name]
         self.logger.debug(f'Starting topic message processor for {topic.name}')
         
         try:
             while True:
                 message = await topic.queue.get()
-                self.logger.debug(f'Got message for topic {topic.name} in mode {topic.processing_mode}: {message}')
                 
-                # Check for mode transitions based on current state and conditions
-                if topic.processing_mode == ProcessingMode.PROCESSING_NORMAL_MESSAGES and topic.leave_requested.is_set():
-                    # Transition from normal processing to leave mode
-                    self.logger.debug(f'Leave requested for topic {topic.name}, switching to leave mode')
-                    topic.processing_mode = ProcessingMode.PROCESSING_LEAVE
+                # Determine current state by checking relevant conditions at the start of each iteration
+                subscription_completed = topic.subscription_result.done()
+                leave_requested = topic.leave_requested.is_set()
                 
-                # Process message based on current mode and handle transitions inline
-                if topic.processing_mode == ProcessingMode.WAITING_FOR_JOIN_RESPONSE:
+                if not subscription_completed:
+                    # We're still waiting for the initial join response
+                    current_state = "waiting for join response"
                     join_success = await self._handle_join_response_mode(topic, message)
-                    if join_success:
-                        self.logger.debug(f'Switching topic {topic.name} to normal processing mode')
-                        topic.processing_mode = ProcessingMode.PROCESSING_NORMAL_MESSAGES
-                    else:
+                    if not join_success:
                         self.logger.debug(f'Exiting topic processor for {topic.name} due to join failure')
                         break
                         
-                elif topic.processing_mode == ProcessingMode.PROCESSING_NORMAL_MESSAGES:
-                    await self._handle_normal_message_mode(topic, message)
-                    # Continue processing in normal mode
-                    
-                elif topic.processing_mode == ProcessingMode.PROCESSING_LEAVE:
+                elif leave_requested:
+                    # Leave has been requested, we're processing the leave
+                    current_state = "processing leave"
                     leave_completed = await self._handle_leave_mode(topic, message)
                     if leave_completed:
                         self.logger.debug(f'Exiting topic processor for {topic.name} - leave completed')
                         break
                     # Continue draining queue if not completed
+                    
+                else:
+                    # Normal message processing state
+                    current_state = "processing normal messages"
+                    await self._handle_normal_message_mode(topic, message)
                 
+                self.logger.debug(f'Processed message for topic {topic.name} in state "{current_state}": {message}')
                 topic.queue.task_done()
                 
         except Exception as e:
