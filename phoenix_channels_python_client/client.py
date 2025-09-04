@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from asyncio import AbstractEventLoop, Queue
+from enum import Enum
 from logging import Logger
 from types import TracebackType
 from typing import  Callable, Optional, Type, Union, Awaitable
@@ -16,6 +17,13 @@ from phoenix_channels_python_client.phx_messages import (
 )
 from phoenix_channels_python_client.topic_subscription import TopicSubscription
 from phoenix_channels_python_client.utils import make_message
+
+
+class TopicProcessingState(Enum):
+    """States for topic message processing"""
+    WAITING_FOR_JOIN = "waiting_for_join"
+    PROCESSING_LEAVE = "processing_leave"
+    NORMAL_PROCESSING = "normal_processing"
 
 
 class PHXChannelsClient:
@@ -91,6 +99,18 @@ class PHXChannelsClient:
         if not topic_subscription.subscription_ready.done():
             topic_subscription.subscription_ready.set_exception(error)
 
+    def _determine_processing_state(self, topic: TopicSubscription) -> TopicProcessingState:
+        """Determine the current processing state for a topic subscription"""
+        subscription_ready = topic.subscription_ready.done()
+        leave_requested = topic.leave_requested.is_set()
+        
+        if not subscription_ready:
+            return TopicProcessingState.WAITING_FOR_JOIN
+        elif leave_requested:
+            return TopicProcessingState.PROCESSING_LEAVE
+        else:
+            return TopicProcessingState.NORMAL_PROCESSING
+
     async def _process_topic_messages(self, topic_name: str) -> None:
         """Process messages for a specific topic subscription with three distinct processing states"""
         topic = self._topic_subscriptions[topic_name]
@@ -100,25 +120,23 @@ class PHXChannelsClient:
             while True:
                 message = await topic.queue.get()
                 
-                subscription_ready = topic.subscription_ready.done()
-                leave_requested = topic.leave_requested.is_set()
+                current_state = self._determine_processing_state(topic)
+                self.logger.debug(f'Processing message for topic {topic.name} in state {current_state.value}: {message}')
                 
-                if not subscription_ready:
+                if current_state == TopicProcessingState.WAITING_FOR_JOIN:
                     join_success = await self._handle_join_response_mode(topic, message)
                     if not join_success:
                         self.logger.debug(f'Exiting topic processor for {topic.name} due to join failure')
                         break
                         
-                elif leave_requested:
+                elif current_state == TopicProcessingState.PROCESSING_LEAVE:
                     leave_completed = await self._handle_leave_mode(topic, message)
                     if leave_completed:
                         self.logger.debug(f'Exiting topic processor for {topic.name} - leave completed')
                         break
-                    
-                else:
+                        
+                elif current_state == TopicProcessingState.NORMAL_PROCESSING:
                     await self._handle_normal_message_mode(topic, message)
-                
-                topic.queue.task_done()
                 
         except Exception as e:
             self.logger.exception(f'Error in topic message processor for {topic.name}: {e}')
@@ -170,7 +188,6 @@ class PHXChannelsClient:
         """Handle leave processing mode. Returns True if leave is completed, False to continue draining."""
         self.logger.debug(f'Processing message during leave for topic {topic.name}: {message}')
         
-        # Check if this is the leave response
         is_leave_response = (
             hasattr(message, 'event') and 
             message.event == PHXEvent.reply and
@@ -178,7 +195,6 @@ class PHXChannelsClient:
         )
         
         if is_leave_response:
-            # This is the leave response, process it
             is_leave_success = message.payload.get('status') == 'ok'
             
             if is_leave_success:
@@ -186,7 +202,6 @@ class PHXChannelsClient:
             else:
                 self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {message.payload}')
             
-            # Wait for current callback to finish if it's still running
             if topic.current_callback_task and not topic.current_callback_task.done():
                 self.logger.debug(f'Waiting for current callback to finish for topic {topic.name}')
                 try:
@@ -194,18 +209,16 @@ class PHXChannelsClient:
                 except Exception as e:
                     self.logger.exception(f'Error waiting for callback to finish for {topic.name}: {e}')
             
-            # Signal unsubscribe completion
             if topic.unsubscribe_completed and not topic.unsubscribe_completed.done():
                 if is_leave_success:
                     topic.unsubscribe_completed.set_result(None)
                 else:
                     topic.unsubscribe_completed.set_exception(PHXTopicError(f'Failed to unsubscribe: {message.payload}'))
             
-            return True  # Leave completed
+            return True  
         else:
-            # Ignore this message (it was in the queue before leave)
             self.logger.debug(f'Ignoring queued message for leaving topic {topic.name}: {message}')
-            return False  # Continue draining
+            return False  
 
     def _unregister_topic(self, topic_name: str) -> None:
         """Unregister a topic subscription"""
