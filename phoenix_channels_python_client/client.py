@@ -119,16 +119,12 @@ class PHXChannelsClient:
                 self.logger.debug(f'Processing message for topic {topic.name} in state {current_state.value}: {message}')
                 
                 if current_state == TopicProcessingState.WAITING_FOR_JOIN:
-                    try:
-                        await self._handle_join_response_mode(topic, message)
-                    except PHXTopicError:
-                        self.logger.debug(f'Exiting topic processor for {topic.name} due to join failure')
-                        self._unregister_topic(topic.name)
-                        break
-                        
+                    await self._handle_join_response_mode(topic, message)
+
                 elif current_state == TopicProcessingState.PROCESSING_LEAVE:
-                    leave_completed = await self._handle_leave_mode(topic, message)
-                    if leave_completed:
+                    try:
+                        await self._handle_leave_mode(topic, message)
+                    except PHXTopicError:
                         self.logger.debug(f'Exiting topic processor for {topic.name} - leave completed')
                         break
                         
@@ -137,7 +133,6 @@ class PHXChannelsClient:
                 
         except Exception as e:
             self.logger.exception(f'Error in topic message processor for {topic.name}: {e}')
-            self._set_subscription_error(topic, e)
             self._unregister_topic(topic.name)
 
     async def _handle_join_response_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
@@ -169,21 +164,17 @@ class PHXChannelsClient:
         finally:
             topic.current_callback_task = None
 
-    async def _handle_leave_mode(self, topic: TopicSubscription, message: ChannelMessage) -> bool:
+    async def _handle_leave_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
         self.logger.debug(f'Processing message during leave for topic {topic.name}: {message}')
         
-        is_leave_response = (
-            isinstance(message, PHXEventMessage) and 
-            message.event == PHXEvent.reply
-        )
+        if not isinstance(message, PHXEventMessage) or message.event != PHXEvent.reply:
+            self.logger.debug(f'Ignoring queued message for leaving topic {topic.name}: {message}')
+            return
         
-        if is_leave_response:
-            is_leave_success = message.payload.get('status') == 'ok'
-            
-            if is_leave_success:
-                self.logger.info(f'Successfully unsubscribed from topic {topic.name}')
-            else:
-                self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {message.payload}')
+        is_leave_success = message.payload.get('status') == 'ok'
+        
+        if is_leave_success:
+            self.logger.info(f'Successfully unsubscribed from topic {topic.name}')
             
             if topic.current_callback_task and not topic.current_callback_task.done():
                 self.logger.debug(f'Waiting for current callback to finish for topic {topic.name}')
@@ -193,15 +184,13 @@ class PHXChannelsClient:
                     self.logger.exception(f'Error waiting for callback to finish for {topic.name}: {e}')
             
             if topic.unsubscribe_completed and not topic.unsubscribe_completed.done():
-                if is_leave_success:
-                    topic.unsubscribe_completed.set_result(None)
-                else:
-                    topic.unsubscribe_completed.set_exception(PHXTopicError(f'Failed to unsubscribe: {message.payload}'))
-            
-            return True  
+                topic.unsubscribe_completed.set_result(None)
+                
         else:
-            self.logger.debug(f'Ignoring queued message for leaving topic {topic.name}: {message}')
-            return False
+            self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {message.payload}')
+            if topic.unsubscribe_completed and not topic.unsubscribe_completed.done():
+                topic.unsubscribe_completed.set_exception(PHXTopicError(f'Failed to unsubscribe: {message.payload}'))
+            raise PHXTopicError(f'Failed to unsubscribe: {message.payload}')
 
     def _unregister_topic(self, topic_name: str) -> None:
         if topic_name in self._topic_subscriptions:
