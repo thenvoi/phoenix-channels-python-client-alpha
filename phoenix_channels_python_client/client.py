@@ -281,19 +281,16 @@ class PHXChannelsClient:
         
         topic_subscription = self._topic_subscriptions[topic]
         
-        # Create a future to wait for the leave response
         unsubscribe_completed_future = self._loop.create_future()
         topic_subscription.unsubscribe_completed = unsubscribe_completed_future
         
-        # Send leave message first
         topic_leave_message = make_message(event=PHXEvent.leave, topic=topic)
         await self._send_message(self.connection, topic_leave_message)
         
-        # Signal the existing task to start leave process
         topic_subscription.leave_requested.set()
         
         try:
-            await unsubscribe_completed_future  # Just wait for completion, no return value needed
+            await unsubscribe_completed_future  
         except Exception as e:
             self.logger.error(f'Error during unsubscribe from {topic}: {e}')
             raise
