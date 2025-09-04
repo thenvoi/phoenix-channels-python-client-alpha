@@ -241,3 +241,38 @@ async def test_messages_are_handled_in_correct_order(phoenix_server: FakePhoenix
         
         assert len(received_messages) == expected_message_count
         assert received_messages == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_unsubscribes_from_all_topics_and_cleans_up_resources(phoenix_server: FakePhoenixServer):
+    """Test that shutdown properly unsubscribes from all topics and cleans up resources."""
+    
+    async def test_callback(message: ChannelMessage):
+        pass
+    
+    client = PHXChannelsClient(phoenix_server.url)
+    
+    try:
+        await client.__aenter__()
+        
+        await client.subscribe_to_topic("test-topic", test_callback)
+        await client.subscribe_to_topic("test-topic-b", test_callback)
+        
+        subscriptions = client.get_current_subscriptions()
+        assert len(subscriptions) == 2
+        assert "test-topic" in subscriptions
+        assert "test-topic-b" in subscriptions
+        assert client.connection is not None
+        assert client._message_routing_task is not None
+        
+        await client.shutdown("test shutdown")
+        
+        subscriptions = client.get_current_subscriptions()
+        assert len(subscriptions) == 0
+        
+        assert client.connection is None
+        
+    except Exception as e:
+        if client.connection:
+            await client.shutdown("cleanup after failure")
+        raise
