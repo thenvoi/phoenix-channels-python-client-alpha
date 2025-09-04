@@ -80,7 +80,6 @@ class PHXChannelsClient:
         self.logger.info(f'Event loop shutting down! {reason=}')
         await self.connection.close()
 
-        # Cancel all topic subscription tasks
         for topic, subscription in self._topic_subscriptions.items():
             if subscription.process_topic_messages_task:
                 subscription.process_topic_messages_task.cancel()
@@ -174,9 +173,7 @@ class PHXChannelsClient:
         """Handle normal message processing mode"""
         self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
         
-        # Process the message with callback
         try:
-            # Create a task for the callback to track it
             topic.current_callback_task = asyncio.create_task(topic.async_callback(message))
             await topic.current_callback_task
         except Exception as e:
@@ -234,14 +231,10 @@ class PHXChannelsClient:
     async def process_websocket_messages(self) -> None:
         self.logger.debug('Starting websocket message loop')
         async for socket_message in self.connection:
-            print('===============================================')
-            print(socket_message)
-            print('===============================================')
             phx_message = self._parse_message(socket_message)
             self.logger.debug(f'Processing message - {phx_message=}')
             topic = phx_message.topic
             
-            # Route message to topic subscription if it exists
             if topic in self._topic_subscriptions:
                 topic_subscription = self._topic_subscriptions[topic]
                 await topic_subscription.queue.put(phx_message)
