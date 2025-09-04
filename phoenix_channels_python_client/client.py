@@ -141,22 +141,18 @@ class PHXChannelsClient:
     async def _handle_join_response_mode(self, topic: TopicSubscription, message: ChannelMessage) -> bool:
         self.logger.debug(f'Handling join response for topic {topic.name}: {message}')
         
-        is_join_success = (
-            isinstance(message, PHXEventMessage) and 
-            message.event == PHXEvent.reply and
-            message.payload.get('status') == 'ok'
-        )
+        if not isinstance(message, PHXEventMessage) or message.event != PHXEvent.reply:
+            raise PHXTopicError(f'Unexpected message type in join response mode: {message}')
+        
+        is_join_success = message.payload.get('status') == 'ok'
         
         if is_join_success:
             self._set_subscription_ready(topic)
             self.logger.info(f'Successfully subscribed to topic {topic.name}')
             return True
         else:
-            error_message = "invalid topic"
-            if isinstance(message.payload, dict):
-                response = message.payload.get('response', {})
-                if isinstance(response, dict) and 'reason' in response:
-                    error_message = response['reason']
+            response = message.payload.get('response', {})
+            error_message = response.get('reason', 'invalid topic') if isinstance(response, dict) else 'invalid topic'
             
             error = PHXTopicError(error_message)
             self._set_subscription_error(topic, error)
