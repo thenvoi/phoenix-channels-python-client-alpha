@@ -119,9 +119,11 @@ class PHXChannelsClient:
                 self.logger.debug(f'Processing message for topic {topic.name} in state {current_state.value}: {message}')
                 
                 if current_state == TopicProcessingState.WAITING_FOR_JOIN:
-                    join_success = await self._handle_join_response_mode(topic, message)
-                    if not join_success:
+                    try:
+                        await self._handle_join_response_mode(topic, message)
+                    except PHXTopicError:
                         self.logger.debug(f'Exiting topic processor for {topic.name} due to join failure')
+                        self._unregister_topic(topic.name)
                         break
                         
                 elif current_state == TopicProcessingState.PROCESSING_LEAVE:
@@ -138,18 +140,15 @@ class PHXChannelsClient:
             self._set_subscription_error(topic, e)
             self._unregister_topic(topic.name)
 
-    async def _handle_join_response_mode(self, topic: TopicSubscription, message: ChannelMessage) -> bool:
+    async def _handle_join_response_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
         self.logger.debug(f'Handling join response for topic {topic.name}: {message}')
         
         if not isinstance(message, PHXEventMessage) or message.event != PHXEvent.reply:
             raise PHXTopicError(f'Unexpected message type in join response mode: {message}')
         
-        is_join_success = message.payload.get('status') == 'ok'
-        
-        if is_join_success:
+        if message.payload.get('status') == 'ok':
             self._set_subscription_ready(topic)
             self.logger.info(f'Successfully subscribed to topic {topic.name}')
-            return True
         else:
             response = message.payload.get('response', {})
             error_message = response.get('reason', 'invalid topic') if isinstance(response, dict) else 'invalid topic'
@@ -157,8 +156,7 @@ class PHXChannelsClient:
             error = PHXTopicError(error_message)
             self._set_subscription_error(topic, error)
             self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
-            self._unregister_topic(topic.name)
-            return False
+            raise error
 
     async def _handle_normal_message_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
         self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
