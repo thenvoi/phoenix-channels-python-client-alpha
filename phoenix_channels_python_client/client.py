@@ -78,14 +78,32 @@ class PHXChannelsClient:
         reason: str,
     ) -> None:
         self.logger.info(f'Event loop shutting down! {reason=}')
-        await self.connection.close()
-
-        for topic, subscription in self._topic_subscriptions.items():
-            if subscription.process_topic_messages_task:
-                subscription.process_topic_messages_task.cancel()
-                self.logger.debug(f'Cancelled topic subscription task for {topic}')
         
-        self._topic_subscriptions.clear()
+        topics_to_unsubscribe = list(self._topic_subscriptions.keys())
+        if topics_to_unsubscribe:
+            unsubscribe_tasks = [
+                self.unsubscribe_from_topic(topic) 
+                for topic in topics_to_unsubscribe
+            ]
+            
+            results = await asyncio.gather(*unsubscribe_tasks, return_exceptions=True)
+            
+            for topic, result in zip(topics_to_unsubscribe, results):
+                if isinstance(result, Exception):
+                    self.logger.warning(f'Failed to unsubscribe from topic {topic} during shutdown: {result}')
+                    self._unregister_topic(topic)
+                else:
+                    self.logger.debug(f'Successfully unsubscribed from topic {topic} during shutdown')
+        
+        if self._message_routing_task and not self._message_routing_task.done():
+            self._message_routing_task.cancel()
+            try:
+                await self._message_routing_task
+            except asyncio.CancelledError:
+                self.logger.debug('Message routing task cancelled during shutdown')
+        
+        await self.connection.close()
+        self.connection = None
 
 
     def _set_subscription_ready(self, topic_subscription: TopicSubscription) -> None:
