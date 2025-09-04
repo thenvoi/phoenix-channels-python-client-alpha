@@ -19,12 +19,6 @@ from phoenix_channels_python_client.utils import make_message
 
 
 class PHXChannelsClient:
-    channel_socket_url: str
-    logger: Logger
-
-    _topic_subscriptions: dict[str, TopicSubscription]
-    _loop: AbstractEventLoop
-
     def __init__(
         self,
         channel_socket_url: str,
@@ -33,7 +27,7 @@ class PHXChannelsClient:
         self.logger = logging.getLogger(__name__)
         self.channel_socket_url = channel_socket_url
         self.connection = None
-        self._topic_subscriptions = {}
+        self._topic_subscriptions: dict[str, TopicSubscription] = {}
         self._loop = event_loop or asyncio.get_event_loop()
         self._message_routing_task=None
 
@@ -106,33 +100,24 @@ class PHXChannelsClient:
             while True:
                 message = await topic.queue.get()
                 
-                # Determine current state by checking relevant conditions at the start of each iteration
                 subscription_ready = topic.subscription_ready.done()
                 leave_requested = topic.leave_requested.is_set()
                 
                 if not subscription_ready:
-                    # We're still waiting for the initial join response
-                    current_state = "waiting for join response"
                     join_success = await self._handle_join_response_mode(topic, message)
                     if not join_success:
                         self.logger.debug(f'Exiting topic processor for {topic.name} due to join failure')
                         break
                         
                 elif leave_requested:
-                    # Leave has been requested, we're processing the leave
-                    current_state = "processing leave"
                     leave_completed = await self._handle_leave_mode(topic, message)
                     if leave_completed:
                         self.logger.debug(f'Exiting topic processor for {topic.name} - leave completed')
                         break
-                    # Continue draining queue if not completed
                     
                 else:
-                    # Normal message processing state
-                    current_state = "processing normal messages"
                     await self._handle_normal_message_mode(topic, message)
                 
-                self.logger.debug(f'Processed message for topic {topic.name} in state "{current_state}": {message}')
                 topic.queue.task_done()
                 
         except Exception as e:
@@ -144,7 +129,6 @@ class PHXChannelsClient:
         """Handle the initial join response message. Returns True if join succeeded, False if failed."""
         self.logger.debug(f'Handling join response for topic {topic.name}: {message}')
         
-        # Check if it's a successful join reply
         is_join_success = (
             hasattr(message, 'event') and 
             message.event == PHXEvent.reply and
@@ -152,12 +136,10 @@ class PHXChannelsClient:
         )
         
         if is_join_success:
-            # Successfully joined topic
             self._set_subscription_ready(topic)
             self.logger.info(f'Successfully subscribed to topic {topic.name}')
             return True
         else:
-            # Failed to join topic or unexpected message
             error_message = "invalid topic"
             if hasattr(message, 'payload') and isinstance(message.payload, dict):
                 response = message.payload.get('response', {})
