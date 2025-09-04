@@ -9,13 +9,13 @@ from websockets import ClientConnection
 
 from websockets import connect
 
-from phoenix_channels_python_client import json_handler
 from phoenix_channels_python_client.exceptions import PHXConnectionError, PHXTopicError
 from phoenix_channels_python_client.phx_messages import (
     ChannelMessage,
     PHXEvent,
     PHXEventMessage,
 )
+from phoenix_channels_python_client.protocol_handler import PHXProtocolHandler
 from phoenix_channels_python_client.topic_subscription import TopicSubscription
 from phoenix_channels_python_client.utils import make_message
 
@@ -31,6 +31,7 @@ class PHXChannelsClient:
         self,
         channel_socket_url: str,
         event_loop: Optional[AbstractEventLoop] = None,
+        protocol_version: str = "1.0",
     ):
         self.logger = logging.getLogger(__name__)
         self.channel_socket_url = channel_socket_url
@@ -38,6 +39,7 @@ class PHXChannelsClient:
         self._topic_subscriptions: dict[str, TopicSubscription] = {}
         self._loop = event_loop or asyncio.get_event_loop()
         self._message_routing_task=None
+        self._protocol_handler = PHXProtocolHandler(protocol_version)
 
     async def __aenter__(self) -> 'PHXChannelsClient':
         self.logger.debug('Entering PHXChannelsClient context')
@@ -60,18 +62,17 @@ class PHXChannelsClient:
         await self.shutdown('Leaving PHXChannelsClient context')
 
     async def _send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
-        self.logger.debug(f'Serialising {message=} to JSON')
-        json_message = json_handler.dumps(message)
+        self.logger.debug(f'Serialising {message=} to {self._protocol_handler.get_protocol_version()} format')
+        bytes_message = self._protocol_handler.serialize_message(message)
 
-        self.logger.debug(f'Sending {json_message=}')
-        await websocket.send(json_message)
+        self.logger.debug(f'Sending {bytes_message=}')
+        await websocket.send(bytes_message)
 
     def _parse_message(self, socket_message: Union[str, bytes]) -> ChannelMessage:
         self.logger.debug(f'Got message - {socket_message=}')
-        message_dict = json_handler.loads(socket_message)
-
-        self.logger.debug(f'Decoding message dict - {message_dict=}')
-        return make_message(**message_dict)
+        message = self._protocol_handler.parse_message(socket_message)
+        self.logger.debug(f'Decoded message - {message=}')
+        return message
 
     async def shutdown(
         self,
@@ -233,6 +234,9 @@ class PHXChannelsClient:
 
     def get_current_subscriptions(self) -> dict[str, TopicSubscription]:
         return self._topic_subscriptions.copy()
+    
+    def get_protocol_handler(self) -> PHXProtocolHandler:
+        return self._protocol_handler
 
     async def subscribe_to_topic(self, topic: str, async_callback: Callable[[ChannelMessage], Awaitable[None]]) -> None:
         if topic in self._topic_subscriptions:
