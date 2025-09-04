@@ -192,22 +192,18 @@ async def test_two_topics_with_different_callbacks(phoenix_server: FakePhoenixSe
         callback_b_event.set()
     
     async with PHXChannelsClient(phoenix_server.url) as client:
-        # Subscribe to both topics
         await client.subscribe_to_topic("test-topic", callback_a)
         await client.subscribe_to_topic("test-topic-b", callback_b)
         
-        # Send unique events to each topic
         payload_a = {"topic_id": "a"}
         payload_b = {"topic_id": "b"}
         
         await phoenix_server.simulate_server_event("test-topic", "event1", payload_a)
         await phoenix_server.simulate_server_event("test-topic-b", "event2", payload_b)
         
-        # Wait for both callbacks to complete
         await callback_a_event.wait()
         await callback_b_event.wait()
         
-        # Verify each callback received the correct payload
         assert len(messages_a) == 1
         assert len(messages_b) == 1
         assert messages_a[0].payload == payload_a
