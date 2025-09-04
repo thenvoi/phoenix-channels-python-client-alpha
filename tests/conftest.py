@@ -13,6 +13,7 @@ class FakePhoenixServer:
         self.client_websocket = None
         self.valid_topics = {
             "test-topic",
+            "test-topic-b",
         }
         
     async def handler(self, websocket):
