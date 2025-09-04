@@ -212,3 +212,36 @@ async def test_two_topics_with_different_callbacks(phoenix_server: FakePhoenixSe
         assert len(messages_b) == 1
         assert messages_a[0].payload == payload_a
         assert messages_b[0].payload == payload_b
+
+
+@pytest.mark.asyncio
+async def test_messages_are_handled_in_correct_order(phoenix_server: FakePhoenixServer):
+    """Test that messages sent in a burst are handled in the correct sequential order."""
+    
+    received_messages = []
+    all_messages_received = asyncio.Event()
+    expected_message_count = 5
+    
+    async def ordered_callback(message: ChannelMessage):
+        received_messages.append(message.payload["sequence_id"])
+        if len(received_messages) == expected_message_count:
+            all_messages_received.set()
+    
+    async with PHXChannelsClient(phoenix_server.url) as client:
+        await client.subscribe_to_topic("test-topic", ordered_callback)
+        
+        message_tasks = [
+            phoenix_server.simulate_server_event(
+                "test-topic", 
+                "sequence_event", 
+                {"sequence_id": i, "data": f"message_{i}"}
+            )
+            for i in range(expected_message_count)
+        ]
+        
+        await asyncio.gather(*message_tasks)
+        
+        await all_messages_received.wait()
+        
+        assert len(received_messages) == expected_message_count
+        assert received_messages == [0, 1, 2, 3, 4]
