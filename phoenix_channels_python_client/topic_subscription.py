@@ -1,8 +1,15 @@
 from asyncio import  Queue, Task, Future, Event
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import  Callable, Awaitable, Optional
 
 from phoenix_channels_python_client.phx_messages import ChannelMessage
+
+
+class TopicProcessingState(Enum):
+    WAITING_FOR_JOIN = "waiting_for_join"
+    PROCESSING_LEAVE = "processing_leave"
+    NORMAL_PROCESSING = "normal_processing"
 
 
 @dataclass()

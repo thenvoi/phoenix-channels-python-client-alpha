@@ -1,5 +1,6 @@
 import logging
-from typing import Union, Dict, Any
+from enum import Enum
+from typing import Dict, Union
 from websockets import ClientConnection
 
 from phoenix_channels_python_client import json_handler
@@ -8,12 +9,18 @@ from phoenix_channels_python_client.utils import make_message
 from phoenix_channels_python_client.topic_subscription import TopicSubscription
 
 
+class PhoenixChannelsProtocolVersion(Enum):
+    """Phoenix Channels protocol versions"""
+    V1 = "1.0"  
+    V2 = "2.0"
+
+
 class PHXProtocolHandler:
     
-    def __init__(self, protocol_version: str = "1.0"):
-        self.protocol_version = protocol_version
+    def __init__(self, protocol_version: PhoenixChannelsProtocolVersion = PhoenixChannelsProtocolVersion.V1):
+        self.protocol_version = protocol_version.value
         self.logger = logging.getLogger(f"{__name__}.ProtocolHandler")
-        self.logger.debug(f"Initialized PHXProtocolHandler for protocol version {protocol_version}")
+        self.logger.debug(f"Initialized PHXProtocolHandler for protocol version {self.protocol_version}")
     
     def parse_message(self, raw_message: Union[str, bytes]) -> ChannelMessage:
         self.logger.debug(f'Parsing raw message: {raw_message}')
@@ -22,7 +29,7 @@ class PHXProtocolHandler:
             parsed_data = json_handler.loads(raw_message)
             self.logger.debug(f'Decoded data: {parsed_data}')
             
-            if self.protocol_version == "2.0":
+            if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
                 # v2.0 expects array format: [join_ref, msg_ref, topic, event, payload]
                 if not isinstance(parsed_data, list):
                     raise ValueError(f"Protocol v{self.protocol_version} expects array format, got object")
@@ -58,7 +65,7 @@ class PHXProtocolHandler:
         self.logger.debug(f'Serializing message: {message}')
         
         try:
-            if self.protocol_version == "2.0":
+            if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
                 # Official Phoenix Channels format: [join_ref, msg_ref, topic, event, payload]
                 join_ref = message.join_ref  # None for non-join messages
                 msg_ref = message.ref  # Can be None for server pushes

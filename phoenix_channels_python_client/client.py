@@ -14,21 +14,9 @@ from phoenix_channels_python_client.phx_messages import (
     PHXEvent,
     PHXEventMessage,
 )
-from phoenix_channels_python_client.protocol_handler import PHXProtocolHandler
-from phoenix_channels_python_client.topic_subscription import TopicSubscription
+from phoenix_channels_python_client.protocol_handler import PHXProtocolHandler, PhoenixChannelsProtocolVersion
+from phoenix_channels_python_client.topic_subscription import TopicSubscription, TopicProcessingState
 from phoenix_channels_python_client.utils import make_message
-
-
-class PhoenixChannelsProtocolVersion(Enum):
-    """Phoenix Channels protocol versions"""
-    V1 = "1.0"  
-    V2 = "2.0"  
-
-
-class TopicProcessingState(Enum):
-    WAITING_FOR_JOIN = "waiting_for_join"
-    PROCESSING_LEAVE = "processing_leave"
-    NORMAL_PROCESSING = "normal_processing"
 
 
 class PHXChannelsClient:
@@ -49,7 +37,7 @@ class PHXChannelsClient:
         self._topic_subscriptions: dict[str, TopicSubscription] = {}
         self._loop = event_loop or asyncio.get_event_loop()
         self._message_routing_task=None
-        self._protocol_handler = PHXProtocolHandler(protocol_version.value)
+        self._protocol_handler = PHXProtocolHandler(protocol_version)
         self._ref_counter = 0
 
     async def __aenter__(self) -> 'PHXChannelsClient':

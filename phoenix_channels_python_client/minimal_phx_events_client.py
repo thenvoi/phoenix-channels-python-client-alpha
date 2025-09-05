@@ -19,7 +19,8 @@ Logging:
     - Set LOG_LEVEL=DEBUG to see all phx_events internal operations
     - Set LOG_LEVEL=INFO for normal operation with some debug info
 """
-from phoenix_channels_python_client.client import PHXChannelsClient, PhoenixChannelsProtocolVersion
+from phoenix_channels_python_client.client import PHXChannelsClient
+from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
 
 import asyncio
 import os
