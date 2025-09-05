@@ -73,7 +73,13 @@ class PHXProtocolHandler:
                 serialized_bytes = json_handler.dumps(message_array)
                 serialized = serialized_bytes.decode('utf-8')
             else:
-                serialized_bytes = json_handler.dumps(message)
+                v1_message = {
+                    'topic': message.topic,
+                    'event': str(message.event),
+                    'ref': message.ref,
+                    'payload': message.payload
+                }
+                serialized_bytes = json_handler.dumps(v1_message)
                 serialized = serialized_bytes.decode('utf-8')
             
             self.logger.debug(f'Serialized to: {serialized}')

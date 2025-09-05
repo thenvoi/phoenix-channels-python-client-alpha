@@ -261,7 +261,7 @@ class PHXChannelsClient:
         topic_subscription.unsubscribe_completed = unsubscribe_completed_future
         
         leave_ref = self._generate_ref()
-        topic_leave_message = make_message(event=PHXEvent.leave, topic=topic, ref=leave_ref)
+        topic_leave_message = make_message(event=PHXEvent.leave, topic=topic, ref=leave_ref,join_ref=topic_subscription.join_ref)
         await self._protocol_handler.send_message(self.connection, topic_leave_message)
         
         topic_subscription.leave_requested.set()
