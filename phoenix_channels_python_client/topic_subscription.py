@@ -13,6 +13,8 @@ class TopicSubscription:
     queue: Queue[ChannelMessage]
     # Single future that completes when subscription is established or fails with exception
     subscription_ready: Future[None]
+    # Unique reference for this subscription
+    join_ref: str
     process_topic_messages_task: Task[None] = None
     # Signaling mechanism for leave requests
     leave_requested: Event = field(default_factory=Event)

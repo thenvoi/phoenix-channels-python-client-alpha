@@ -31,7 +31,8 @@ class PHXProtocolHandler:
                     'topic': parsed_data[2],
                     'event': parsed_data[3], 
                     'ref': parsed_data[1],
-                    'payload': parsed_data[4] or {}
+                    'payload': parsed_data[4] or {},
+                    'join_ref': parsed_data[0]  # join_ref from first element
                 }
             else:
                 # v1.0 expects object format: {"topic": ..., "event": ..., "ref": ..., "payload": ...}
@@ -57,8 +58,8 @@ class PHXProtocolHandler:
         try:
             if self.protocol_version == "2.0":
                 # Official Phoenix Channels format: [join_ref, msg_ref, topic, event, payload]
-                join_ref = message.ref or "1"
-                msg_ref = message.ref or "1"
+                join_ref = message.join_ref  # None for non-join messages
+                msg_ref = message.ref  # Can be None for server pushes
                 message_array = [join_ref, msg_ref, message.topic, str(message.event), message.payload]
                 serialized_bytes = json_handler.dumps(message_array)
                 serialized = serialized_bytes.decode('utf-8')

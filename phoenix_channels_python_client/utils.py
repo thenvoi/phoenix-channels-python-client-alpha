@@ -16,15 +16,16 @@ def make_message(
     topic: str,
     ref: Optional[str] = None,
     payload: Optional[dict[str, Any]] = None,
+    join_ref: Optional[str] = None,
 ) -> ChannelMessage:
     if payload is None:
         payload = {}
 
     processed_event = parse_event(event)
     if isinstance(processed_event, PHXEvent):
-        return PHXEventMessage(event=processed_event, topic=topic, ref=ref, payload=payload)
+        return PHXEventMessage(event=processed_event, topic=topic, ref=ref, payload=payload, join_ref=join_ref)
     else:
-        return PHXMessage(event=processed_event, topic=topic, ref=ref, payload=payload)
+        return PHXMessage(event=processed_event, topic=topic, ref=ref, payload=payload, join_ref=join_ref)
 
 
 def generate_reference(event: ChannelEvent) -> str:
