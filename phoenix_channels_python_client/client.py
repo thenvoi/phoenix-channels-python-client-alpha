@@ -2,7 +2,6 @@ import asyncio
 import logging
 from asyncio import AbstractEventLoop, Queue
 from enum import Enum
-from logging import Logger
 from types import TracebackType
 from typing import  Callable, Optional, Type, Union, Awaitable
 from websockets import ClientConnection
@@ -62,11 +61,11 @@ class PHXChannelsClient:
         await self.shutdown('Leaving PHXChannelsClient context')
 
     async def _send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
-        self.logger.debug(f'Serialising {message=} to {self._protocol_handler.get_protocol_version()} format')
-        bytes_message = self._protocol_handler.serialize_message(message)
+        self.logger.debug(f'Serialising {message=} to Phoenix Channels v{self._protocol_handler.get_protocol_version()} format')
+        text_message = self._protocol_handler.serialize_message(message)
 
-        self.logger.debug(f'Sending {bytes_message=}')
-        await websocket.send(bytes_message)
+        self.logger.debug(f'Sending as TEXT frame: {text_message}')
+        await websocket.send(text_message)
 
     def _parse_message(self, socket_message: Union[str, bytes]) -> ChannelMessage:
         self.logger.debug(f'Got message - {socket_message=}')
