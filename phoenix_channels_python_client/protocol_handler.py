@@ -5,6 +5,7 @@ from websockets import ClientConnection
 from phoenix_channels_python_client import json_handler
 from phoenix_channels_python_client.phx_messages import ChannelMessage
 from phoenix_channels_python_client.utils import make_message
+from phoenix_channels_python_client.topic_subscription import TopicSubscription
 
 
 class PHXProtocolHandler:
@@ -90,7 +91,7 @@ class PHXProtocolHandler:
         self.logger.debug(f'Sending as TEXT frame: {text_message}')
         await websocket.send(text_message)
 
-    async def process_websocket_messages(self, connection: ClientConnection, topic_subscriptions: Dict[str, Any]) -> None:
+    async def process_websocket_messages(self, connection: ClientConnection, topic_subscriptions: Dict[str, TopicSubscription]) -> None:
         """Process messages from the websocket connection and route them to appropriate topic subscriptions."""
         self.logger.debug('Starting websocket message loop')
         async for socket_message in connection:
@@ -100,4 +101,8 @@ class PHXProtocolHandler:
             
             if topic in topic_subscriptions:
                 topic_subscription = topic_subscriptions[topic]
+                if self.protocol_version == "2.0" and topic_subscription.join_ref != phx_message.join_ref: 
+                    self.logger.warning(f'Received message for topic {topic} with join_ref {phx_message.join_ref} but expected {topic_subscription.join_ref}')
+                    self.logger.warning(f'Ignoring message')
+                    continue
                 await topic_subscription.queue.put(phx_message)
