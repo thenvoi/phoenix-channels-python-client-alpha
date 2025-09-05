@@ -44,8 +44,10 @@ class BasePHXMessage:
 @dataclass(frozen=True)
 class PHXMessage(BasePHXMessage):
     event: Event
+    join_ref: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class PHXEventMessage(BasePHXMessage):
     event: PHXEvent
+    join_ref: Optional[str] = None

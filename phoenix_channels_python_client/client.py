@@ -39,6 +39,7 @@ class PHXChannelsClient:
         self._loop = event_loop or asyncio.get_event_loop()
         self._message_routing_task=None
         self._protocol_handler = PHXProtocolHandler(protocol_version)
+        self._ref_counter = 0
 
     async def __aenter__(self) -> 'PHXChannelsClient':
         self.logger.debug('Entering PHXChannelsClient context')
@@ -236,6 +237,11 @@ class PHXChannelsClient:
     
     def get_protocol_handler(self) -> PHXProtocolHandler:
         return self._protocol_handler
+    
+    def _generate_ref(self) -> str:
+        """Generate unique reference for Phoenix Channels messages."""
+        self._ref_counter += 1
+        return str(self._ref_counter)
 
     async def subscribe_to_topic(self, topic: str, async_callback: Callable[[ChannelMessage], Awaitable[None]]) -> None:
         if topic in self._topic_subscriptions:
@@ -243,19 +249,21 @@ class PHXChannelsClient:
         
         topic_queue = Queue()
         subscription_ready_future = self._loop.create_future()
+        join_ref = self._generate_ref()
         
         topic_subscription = TopicSubscription(
             name=topic,
             async_callback=async_callback,
             queue=topic_queue,
             subscription_ready=subscription_ready_future,
+            join_ref=join_ref,
             process_topic_messages_task=self._loop.create_task(
                 self._process_topic_messages(topic)
             )
         )
         
         self._topic_subscriptions[topic] = topic_subscription
-        topic_join_message = make_message(event=PHXEvent.join, topic=topic)
+        topic_join_message = make_message(event=PHXEvent.join, topic=topic, ref=join_ref, join_ref=join_ref)
         await self._send_message(self.connection, topic_join_message)
         
         try:
@@ -274,7 +282,8 @@ class PHXChannelsClient:
         unsubscribe_completed_future = self._loop.create_future()
         topic_subscription.unsubscribe_completed = unsubscribe_completed_future
         
-        topic_leave_message = make_message(event=PHXEvent.leave, topic=topic)
+        leave_ref = self._generate_ref()
+        topic_leave_message = make_message(event=PHXEvent.leave, topic=topic, ref=leave_ref)
         await self._send_message(self.connection, topic_leave_message)
         
         topic_subscription.leave_requested.set()
