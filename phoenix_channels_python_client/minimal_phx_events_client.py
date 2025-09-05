@@ -86,7 +86,7 @@ async def main():
             logger.info("🔗 Connected to Thenvoi platform!")
             await client.subscribe_to_topic("room_participants:your-room-id", lambda message: logger.info(f"📨 Received: {message}"))
             logger.info("✅ Successfully subscribed! Waiting for messages...")
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
             # await asyncio.sleep(1000)
             # await client.unsubscribe_from_topic("room_participants:your-room-id")
             # print(client.get_current_subscriptions())
