@@ -19,6 +19,12 @@ from phoenix_channels_python_client.topic_subscription import TopicSubscription
 from phoenix_channels_python_client.utils import make_message
 
 
+class PhoenixChannelsProtocolVersion(Enum):
+    """Phoenix Channels protocol versions"""
+    V1 = "1.0"  # JSON object format
+    V2 = "2.0"  # JSON array format
+
+
 class TopicProcessingState(Enum):
     WAITING_FOR_JOIN = "waiting_for_join"
     PROCESSING_LEAVE = "processing_leave"
@@ -28,17 +34,22 @@ class TopicProcessingState(Enum):
 class PHXChannelsClient:
     def __init__(
         self,
-        channel_socket_url: str,
+        websocket_url: str,
+        api_key: str,
         event_loop: Optional[AbstractEventLoop] = None,
-        protocol_version: str = "1.0",
+        protocol_version: PhoenixChannelsProtocolVersion = PhoenixChannelsProtocolVersion.V1,
     ):
         self.logger = logging.getLogger(__name__)
-        self.channel_socket_url = channel_socket_url
+        
+        # Simple URL composition - base URL + query parameters
+        vsn = "2.0.0" if protocol_version == PhoenixChannelsProtocolVersion.V2 else "1.0.0"
+        self.channel_socket_url = f"{websocket_url}?api_key={api_key}&vsn={vsn}"
+        
         self.connection = None
         self._topic_subscriptions: dict[str, TopicSubscription] = {}
         self._loop = event_loop or asyncio.get_event_loop()
         self._message_routing_task=None
-        self._protocol_handler = PHXProtocolHandler(protocol_version)
+        self._protocol_handler = PHXProtocolHandler(protocol_version.value)
         self._ref_counter = 0
 
     async def __aenter__(self) -> 'PHXChannelsClient':

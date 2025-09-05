@@ -10,7 +10,7 @@ from conftest import FakePhoenixServer
 @pytest.mark.asyncio
 async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoenix_server: FakePhoenixServer):
     
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -33,7 +33,7 @@ async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoen
 
 @pytest.mark.asyncio
 async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_unmatched_topic(phoenix_server: FakePhoenixServer):
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -45,7 +45,7 @@ async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_unmat
 
 @pytest.mark.asyncio
 async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_already_subscribed_topic(phoenix_server: FakePhoenixServer):
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -60,7 +60,7 @@ async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_alrea
 
 @pytest.mark.asyncio
 async def test_unsubscribe_from_topic_succeeds_when_unsubscribing_from_subscribed_topic(phoenix_server: FakePhoenixServer):
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -85,7 +85,7 @@ async def test_callback_receives_message_when_server_sends_message_to_subscribed
         received_messages.append(message)
         callback_event.set()
     
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         # Subscribe to topic
         await client.subscribe_to_topic("test-topic", test_callback)
         
@@ -129,7 +129,7 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
         # Wait for test to signal callback can complete
         await callback_control_event.wait()
     
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         # 1. Subscribe to topic successfully
         await client.subscribe_to_topic("test-topic", test_callback)
         
@@ -191,7 +191,7 @@ async def test_two_topics_with_different_callbacks(phoenix_server: FakePhoenixSe
         messages_b.append(message)
         callback_b_event.set()
     
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         await client.subscribe_to_topic("test-topic", callback_a)
         await client.subscribe_to_topic("test-topic-b", callback_b)
         
@@ -223,7 +223,7 @@ async def test_messages_are_handled_in_correct_order(phoenix_server: FakePhoenix
         if len(received_messages) == expected_message_count:
             all_messages_received.set()
     
-    async with PHXChannelsClient(phoenix_server.url) as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
         await client.subscribe_to_topic("test-topic", ordered_callback)
         
         message_tasks = [
@@ -250,7 +250,7 @@ async def test_shutdown_unsubscribes_from_all_topics_and_cleans_up_resources(pho
     async def test_callback(message: ChannelMessage):
         pass
     
-    client = PHXChannelsClient(phoenix_server.url)
+    client = PHXChannelsClient(phoenix_server.url, api_key="test_key")
     
     try:
         await client.__aenter__()

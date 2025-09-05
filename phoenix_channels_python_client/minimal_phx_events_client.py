@@ -19,7 +19,7 @@ Logging:
     - Set LOG_LEVEL=DEBUG to see all phx_events internal operations
     - Set LOG_LEVEL=INFO for normal operation with some debug info
 """
-from phoenix_channels_python_client.client import PHXChannelsClient
+from phoenix_channels_python_client.client import PHXChannelsClient, PhoenixChannelsProtocolVersion
 
 import asyncio
 import os
@@ -79,11 +79,9 @@ async def main():
         logger.error("Please set it in your .env file or environment")
         return
     
-    ws_url_with_auth = f"{ws_base_url}?api_key={api_key}&vsn=2.0.0"
-    
     try:
         logger.debug("Attempting to connect to Phoenix WebSocket...")
-        async with PHXChannelsClient(ws_url_with_auth, protocol_version="2.0") as client:
+        async with PHXChannelsClient(ws_base_url, api_key=api_key, protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
             await client.subscribe_to_topic("room_participants:your-room-id", lambda message: logger.info(f"📨 Received: {message}"))
             logger.info("✅ Successfully subscribed! Waiting for messages...")
