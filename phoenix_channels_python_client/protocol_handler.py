@@ -21,14 +21,24 @@ class PHXProtocolHandler:
             self.logger.debug(f'Decoded data: {parsed_data}')
             
             if isinstance(parsed_data, list):
-                if len(parsed_data) != 4:
-                    raise ValueError(f"v2 protocol requires exactly 4 elements, got {len(parsed_data)}")
-                message_dict = {
-                    'topic': parsed_data[0],
-                    'event': parsed_data[1], 
-                    'ref': parsed_data[2],
-                    'payload': parsed_data[3] or {}
-                }
+                if len(parsed_data) == 5:
+                    # Official Phoenix Channels format: [join_ref, msg_ref, topic, event, payload]
+                    message_dict = {
+                        'topic': parsed_data[2],
+                        'event': parsed_data[3], 
+                        'ref': parsed_data[1],  # Use msg_ref as our ref
+                        'payload': parsed_data[4] or {}
+                    }
+                elif len(parsed_data) == 4:
+                    # Legacy 4-element format: [topic, event, ref, payload]
+                    message_dict = {
+                        'topic': parsed_data[0],
+                        'event': parsed_data[1], 
+                        'ref': parsed_data[2],
+                        'payload': parsed_data[3] or {}
+                    }
+                else:
+                    raise ValueError(f"Array format requires 4 or 5 elements, got {len(parsed_data)}")
             else:
                 message_dict = parsed_data
             
@@ -43,15 +53,20 @@ class PHXProtocolHandler:
             self.logger.error(f'Failed to parse message {raw_message}: {e}')
             raise ValueError(f'Invalid message format: {e}') from e
     
-    def serialize_message(self, message: ChannelMessage) -> bytes:
+    def serialize_message(self, message: ChannelMessage) -> str:
         self.logger.debug(f'Serializing message: {message}')
         
         try:
             if self.protocol_version == "2.0":
-                message_array = [message.topic, message.event, message.ref, message.payload]
-                serialized = json_handler.dumps(message_array)
+                # Official Phoenix Channels format: [join_ref, msg_ref, topic, event, payload]
+                join_ref = message.ref or "1"
+                msg_ref = message.ref or "1"
+                message_array = [join_ref, msg_ref, message.topic, str(message.event), message.payload]
+                serialized_bytes = json_handler.dumps(message_array)
+                serialized = serialized_bytes.decode('utf-8')
             else:
-                serialized = json_handler.dumps(message)
+                serialized_bytes = json_handler.dumps(message)
+                serialized = serialized_bytes.decode('utf-8')
             
             self.logger.debug(f'Serialized to: {serialized}')
             return serialized
