@@ -21,8 +21,8 @@ from phoenix_channels_python_client.utils import make_message
 
 class PhoenixChannelsProtocolVersion(Enum):
     """Phoenix Channels protocol versions"""
-    V1 = "1.0"  # JSON object format
-    V2 = "2.0"  # JSON array format
+    V1 = "1.0"  
+    V2 = "2.0"  
 
 
 class TopicProcessingState(Enum):
@@ -72,18 +72,7 @@ class PHXChannelsClient:
         self.logger.debug('Leaving PHXChannelsClient context')
         await self.shutdown('Leaving PHXChannelsClient context')
 
-    async def _send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
-        self.logger.debug(f'Serialising {message=} to Phoenix Channels v{self._protocol_handler.get_protocol_version()} format')
-        text_message = self._protocol_handler.serialize_message(message)
 
-        self.logger.debug(f'Sending as TEXT frame: {text_message}')
-        await websocket.send(text_message)
-
-    def _parse_message(self, socket_message: Union[str, bytes]) -> ChannelMessage:
-        self.logger.debug(f'Got message - {socket_message=}')
-        message = self._protocol_handler.parse_message(socket_message)
-        self.logger.debug(f'Decoded message - {message=}')
-        return message
 
     async def shutdown(
         self,
@@ -232,16 +221,6 @@ class PHXChannelsClient:
         else:
             self.logger.warning(f'Topic {topic_name} not found in _topic_subscriptions')
 
-    async def process_websocket_messages(self) -> None:
-        self.logger.debug('Starting websocket message loop')
-        async for socket_message in self.connection:
-            phx_message = self._parse_message(socket_message)
-            self.logger.debug(f'Processing message - {phx_message=}')
-            topic = phx_message.topic
-            
-            if topic in self._topic_subscriptions:
-                topic_subscription = self._topic_subscriptions[topic]
-                await topic_subscription.queue.put(phx_message)
 
     def get_current_subscriptions(self) -> dict[str, TopicSubscription]:
         return self._topic_subscriptions.copy()
@@ -275,7 +254,7 @@ class PHXChannelsClient:
         
         self._topic_subscriptions[topic] = topic_subscription
         topic_join_message = make_message(event=PHXEvent.join, topic=topic, ref=join_ref, join_ref=join_ref)
-        await self._send_message(self.connection, topic_join_message)
+        await self._protocol_handler.send_message(self.connection, topic_join_message)
         
         try:
             await subscription_ready_future
@@ -295,7 +274,7 @@ class PHXChannelsClient:
         
         leave_ref = self._generate_ref()
         topic_leave_message = make_message(event=PHXEvent.leave, topic=topic, ref=leave_ref)
-        await self._send_message(self.connection, topic_leave_message)
+        await self._protocol_handler.send_message(self.connection, topic_leave_message)
         
         topic_subscription.leave_requested.set()
         
@@ -309,4 +288,4 @@ class PHXChannelsClient:
 
 
     async def _start_processing(self) -> None:
-        await self.process_websocket_messages()
+        await self._protocol_handler.process_websocket_messages(self.connection, self._topic_subscriptions)
