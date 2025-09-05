@@ -20,26 +20,24 @@ class PHXProtocolHandler:
             parsed_data = json_handler.loads(raw_message)
             self.logger.debug(f'Decoded data: {parsed_data}')
             
-            if isinstance(parsed_data, list):
-                if len(parsed_data) == 5:
-                    # Official Phoenix Channels format: [join_ref, msg_ref, topic, event, payload]
-                    message_dict = {
-                        'topic': parsed_data[2],
-                        'event': parsed_data[3], 
-                        'ref': parsed_data[1],  # Use msg_ref as our ref
-                        'payload': parsed_data[4] or {}
-                    }
-                elif len(parsed_data) == 4:
-                    # Legacy 4-element format: [topic, event, ref, payload]
-                    message_dict = {
-                        'topic': parsed_data[0],
-                        'event': parsed_data[1], 
-                        'ref': parsed_data[2],
-                        'payload': parsed_data[3] or {}
-                    }
-                else:
-                    raise ValueError(f"Array format requires 4 or 5 elements, got {len(parsed_data)}")
+            if self.protocol_version == "2.0":
+                # v2.0 expects array format: [join_ref, msg_ref, topic, event, payload]
+                if not isinstance(parsed_data, list):
+                    raise ValueError(f"Protocol v{self.protocol_version} expects array format, got object")
+                if len(parsed_data) != 5:
+                    raise ValueError(f"Protocol v{self.protocol_version} expects 5-element array, got {len(parsed_data)}")
+                
+                message_dict = {
+                    'topic': parsed_data[2],
+                    'event': parsed_data[3], 
+                    'ref': parsed_data[1],
+                    'payload': parsed_data[4] or {}
+                }
             else:
+                # v1.0 expects object format: {"topic": ..., "event": ..., "ref": ..., "payload": ...}
+                if not isinstance(parsed_data, dict):
+                    raise ValueError(f"Protocol v{self.protocol_version} expects object format, got {type(parsed_data).__name__}")
+                
                 message_dict = parsed_data
             
             required_fields = ['topic', 'event', 'payload']
