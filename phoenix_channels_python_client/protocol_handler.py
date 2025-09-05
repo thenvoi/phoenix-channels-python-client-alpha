@@ -1,5 +1,6 @@
 import logging
-from typing import Union
+from typing import Union, Dict, Any
+from websockets import ClientConnection
 
 from phoenix_channels_python_client import json_handler
 from phoenix_channels_python_client.phx_messages import ChannelMessage
@@ -80,3 +81,23 @@ class PHXProtocolHandler:
     def set_protocol_version(self, version: str) -> None:
         self.logger.info(f"Changing protocol version from {self.protocol_version} to {version}")
         self.protocol_version = version
+    
+    async def send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
+        """Send a message through the websocket connection."""
+        self.logger.debug(f'Serialising {message=} to Phoenix Channels v{self.get_protocol_version()} format')
+        text_message = self.serialize_message(message)
+
+        self.logger.debug(f'Sending as TEXT frame: {text_message}')
+        await websocket.send(text_message)
+
+    async def process_websocket_messages(self, connection: ClientConnection, topic_subscriptions: Dict[str, Any]) -> None:
+        """Process messages from the websocket connection and route them to appropriate topic subscriptions."""
+        self.logger.debug('Starting websocket message loop')
+        async for socket_message in connection:
+            phx_message = self.parse_message(socket_message)
+            self.logger.debug(f'Processing message - {phx_message=}')
+            topic = phx_message.topic
+            
+            if topic in topic_subscriptions:
+                topic_subscription = topic_subscriptions[topic]
+                await topic_subscription.queue.put(phx_message)
