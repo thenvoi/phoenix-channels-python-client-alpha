@@ -26,7 +26,3 @@ def make_message(
         return PHXEventMessage(event=processed_event, topic=topic, ref=ref, payload=payload, join_ref=join_ref)
     else:
         return PHXMessage(event=processed_event, topic=topic, ref=ref, payload=payload, join_ref=join_ref)
-
-
-def generate_reference(event: ChannelEvent) -> str:
-    return f'{datetime.now():%Y%m%d%H%M%S}:{event}'
