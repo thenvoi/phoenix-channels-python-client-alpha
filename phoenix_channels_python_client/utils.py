@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Optional
 
 from phoenix_channels_python_client.phx_messages import ChannelEvent, ChannelMessage, PHXEvent, PHXEventMessage, PHXMessage
