@@ -2,15 +2,13 @@ import asyncio
 import pytest
 from phoenix_channels_python_client.client import PHXChannelsClient
 from phoenix_channels_python_client.phx_messages import ChannelMessage
-
+from phoenix_channels_python_client.protocol_handler import PhoenixChannelsProtocolVersion
 from phoenix_channels_python_client.exceptions import PHXTopicError
-from conftest import FakePhoenixServer
-
-
+from .conftest import FakePhoenixServerV2
 @pytest.mark.asyncio
-async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoenix_server_v1: FakePhoenixServer):
+async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoenix_server: FakePhoenixServerV2):
     
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -32,8 +30,8 @@ async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoen
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_unmatched_topic(phoenix_server_v1: FakePhoenixServer):
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_unmatched_topic(phoenix_server: FakePhoenixServerV2):
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -44,8 +42,8 @@ async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_unmat
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_already_subscribed_topic(phoenix_server_v1: FakePhoenixServer):
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_already_subscribed_topic(phoenix_server: FakePhoenixServerV2):
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -59,8 +57,8 @@ async def test_subscribe_to_topic_raises_phxtopicerror_when_subscribing_to_alrea
 
 
 @pytest.mark.asyncio
-async def test_unsubscribe_from_topic_succeeds_when_unsubscribing_from_subscribed_topic(phoenix_server_v1: FakePhoenixServer):
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+async def test_unsubscribe_from_topic_succeeds_when_unsubscribing_from_subscribed_topic(phoenix_server: FakePhoenixServerV2):
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
@@ -76,7 +74,7 @@ async def test_unsubscribe_from_topic_succeeds_when_unsubscribing_from_subscribe
 
 
 @pytest.mark.asyncio
-async def test_callback_receives_message_when_server_sends_message_to_subscribed_topic(phoenix_server_v1: FakePhoenixServer):
+async def test_callback_receives_message_when_server_sends_message_to_subscribed_topic(phoenix_server: FakePhoenixServerV2):
 
     received_messages = []
     callback_event = asyncio.Event()
@@ -85,12 +83,12 @@ async def test_callback_receives_message_when_server_sends_message_to_subscribed
         received_messages.append(message)
         callback_event.set()
     
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         # Subscribe to topic
         await client.subscribe_to_topic("test-topic", test_callback)
         
         test_payload = {"user_id": 123, "message": "Hello from server!"}
-        await phoenix_server_v1.simulate_server_event("test-topic", "new_message", test_payload)
+        await phoenix_server.simulate_server_event("test-topic", "new_message", test_payload, join_ref="1")
         
         await callback_event.wait()
         
@@ -114,7 +112,7 @@ async def test_callback_receives_message_when_server_sends_message_to_subscribed
 
 
 @pytest.mark.asyncio
-async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_ignores_queued_events(phoenix_server_v1: FakePhoenixServer):
+async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_ignores_queued_events(phoenix_server: FakePhoenixServerV2):
     
     ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT = 10
     
@@ -129,13 +127,13 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
         # Wait for test to signal callback can complete
         await callback_control_event.wait()
     
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         # 1. Subscribe to topic successfully
         await client.subscribe_to_topic("test-topic", test_callback)
         
         # 2. Send burst of events asynchronously using gather
         event_tasks = [
-            phoenix_server_v1.simulate_server_event("test-topic", "burst_event", {"event_id": i})
+            phoenix_server.simulate_server_event("test-topic", "burst_event", {"event_id": i}, join_ref="1")
             for i in range(ARBITRARY_NUMBER_OF_EVENTS_THAT_WILL_SIMULATE_IGNORING_THEM_UNTIL_REACHING_THE_LEAVE_EVENT)
         ]
         await asyncio.gather(*event_tasks)
@@ -174,7 +172,7 @@ async def test_unsubscribe_from_topic_gracefully_allows_callback_to_finish_but_i
 
 
 @pytest.mark.asyncio
-async def test_two_topics_with_different_callbacks(phoenix_server_v1: FakePhoenixServer):
+async def test_two_topics_with_different_callbacks(phoenix_server: FakePhoenixServerV2):
     """Test subscribing to two topics with different callbacks that have unique behavior."""
     
     
@@ -191,15 +189,15 @@ async def test_two_topics_with_different_callbacks(phoenix_server_v1: FakePhoeni
         messages_b.append(message)
         callback_b_event.set()
     
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         await client.subscribe_to_topic("test-topic", callback_a)
         await client.subscribe_to_topic("test-topic-b", callback_b)
         
         payload_a = {"topic_id": "a"}
         payload_b = {"topic_id": "b"}
         
-        await phoenix_server_v1.simulate_server_event("test-topic", "event1", payload_a)
-        await phoenix_server_v1.simulate_server_event("test-topic-b", "event2", payload_b)
+        await phoenix_server.simulate_server_event("test-topic", "event1", payload_a, join_ref="1")
+        await phoenix_server.simulate_server_event("test-topic-b", "event2", payload_b, join_ref="2")
         
         await callback_a_event.wait()
         await callback_b_event.wait()
@@ -211,7 +209,7 @@ async def test_two_topics_with_different_callbacks(phoenix_server_v1: FakePhoeni
 
 
 @pytest.mark.asyncio
-async def test_messages_are_handled_in_correct_order(phoenix_server_v1: FakePhoenixServer):
+async def test_messages_are_handled_in_correct_order(phoenix_server: FakePhoenixServerV2):
     """Test that messages sent in a burst are handled in the correct sequential order."""
     
     received_messages = []
@@ -223,14 +221,15 @@ async def test_messages_are_handled_in_correct_order(phoenix_server_v1: FakePhoe
         if len(received_messages) == expected_message_count:
             all_messages_received.set()
     
-    async with PHXChannelsClient(phoenix_server_v1.url, api_key="test_key") as client:
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
         await client.subscribe_to_topic("test-topic", ordered_callback)
         
         message_tasks = [
-            phoenix_server_v1.simulate_server_event(
+            phoenix_server.simulate_server_event(
                 "test-topic", 
                 "sequence_event", 
-                {"sequence_id": i, "data": f"message_{i}"}
+                {"sequence_id": i, "data": f"message_{i}"},
+                join_ref="1"
             )
             for i in range(expected_message_count)
         ]
@@ -244,13 +243,13 @@ async def test_messages_are_handled_in_correct_order(phoenix_server_v1: FakePhoe
 
 
 @pytest.mark.asyncio
-async def test_shutdown_unsubscribes_from_all_topics_and_cleans_up_resources(phoenix_server_v1: FakePhoenixServer):
+async def test_shutdown_unsubscribes_from_all_topics_and_cleans_up_resources(phoenix_server: FakePhoenixServerV2):
     """Test that shutdown properly unsubscribes from all topics and cleans up resources."""
     
     async def test_callback(message: ChannelMessage):
         pass
     
-    client = PHXChannelsClient(phoenix_server_v1.url, api_key="test_key")
+    client = PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2)
     
     try:
         await client.__aenter__()
