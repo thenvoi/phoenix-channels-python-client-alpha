@@ -275,3 +275,48 @@ async def test_shutdown_unsubscribes_from_all_topics_and_cleans_up_resources(pho
         if client.connection:
             await client.shutdown("cleanup after failure")
         raise
+
+
+@pytest.mark.asyncio
+async def test_dynamic_event_handler_management_with_counter(phoenix_server: FakePhoenixServerV2):
+    """Test dynamic add/remove of event handlers with counter."""
+    
+    handler_count = 0
+    fallback_count = 0
+    event_received = asyncio.Event()
+    
+    async def fallback_callback(message: ChannelMessage):
+        nonlocal fallback_count
+        fallback_count += 1
+        event_received.set()
+    
+    async def count_handler(payload):
+        nonlocal handler_count
+        handler_count += 1
+        event_received.set()
+    
+    async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
+        await client.subscribe_to_topic("test-topic", fallback_callback)
+        
+        # Event goes to fallback
+        await phoenix_server.simulate_server_event("test-topic", "count_me", {}, join_ref="1")
+        await event_received.wait()
+        event_received.clear()
+        assert handler_count == 0
+        assert fallback_count == 1
+        
+        # Add handler, event goes to handler
+        client.add_event_handler("test-topic", "count_me", count_handler)
+        await phoenix_server.simulate_server_event("test-topic", "count_me", {}, join_ref="1")
+        await event_received.wait()
+        event_received.clear()
+        assert handler_count == 1
+        assert fallback_count == 1
+        
+        # Remove handler, event goes to fallback again
+        client.remove_event_handler("test-topic", "count_me")
+        await phoenix_server.simulate_server_event("test-topic", "count_me", {}, join_ref="1")
+        await event_received.wait()
+        assert handler_count == 1
+        assert fallback_count == 2
+
