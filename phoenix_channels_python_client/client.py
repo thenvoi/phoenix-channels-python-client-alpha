@@ -161,28 +161,31 @@ class PHXChannelsClient:
             self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
             raise error
 
+    def _capture_handlers_for_message(self, topic: TopicSubscription, message: ChannelMessage) -> tuple:
+        """Capture atomic snapshots of all handlers for consistent message processing."""
+        message_handler = topic.async_callback
+        event_handler = topic.get_event_handler(message.event)
+        return message_handler, event_handler
+
     async def _handle_normal_message_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
         self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
         
+        message_handler, event_handler = self._capture_handlers_for_message(topic, message)
+        
         try:
-            # Check what handlers we have
-            has_general_handler = topic.async_callback is not None
-            event_handler = topic.get_event_handler(message.event)
+            has_message_handler = message_handler is not None
             has_specific_handler = event_handler is not None
             
-            # Run general message handler first if it exists
-            if has_general_handler:
-                topic.current_callback_task = asyncio.create_task(topic.async_callback(message))
+            if has_message_handler:
+                topic.current_callback_task = asyncio.create_task(message_handler(message))
                 await topic.current_callback_task
                 topic.current_callback_task = None
             
-            # Run specific event handler if it exists
             if has_specific_handler:
                 topic.current_callback_task = asyncio.create_task(event_handler(message.payload))
                 await topic.current_callback_task
             
-            # Warn if no handlers exist at all
-            if not has_general_handler and not has_specific_handler:
+            if not has_message_handler and not has_specific_handler:
                 self.logger.warning(f'No handler found for event {message.event} on topic {topic.name}')
                 
         except Exception as e:
@@ -334,6 +337,40 @@ class PHXChannelsClient:
         
         topic_subscription = self._topic_subscriptions[topic]
         return topic_subscription.event_handlers.copy()
+
+    def set_message_handler(self, topic: str, handler: Callable[[ChannelMessage], Awaitable[None]]) -> None:
+        """Set or update the message handler for a topic. This handler receives all messages."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        topic_subscription.async_callback = handler
+        self.logger.debug(f'Set message handler for topic {topic}')
+
+    def remove_message_handler(self, topic: str) -> None:
+        """Remove the message handler for a topic."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        topic_subscription.async_callback = None
+        self.logger.debug(f'Removed message handler for topic {topic}')
+
+    def get_message_handler(self, topic: str) -> Optional[Callable[[ChannelMessage], Awaitable[None]]]:
+        """Get the current message handler for a topic."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        return topic_subscription.async_callback
+
+    def has_message_handler(self, topic: str) -> bool:
+        """Check if a message handler exists for a topic."""
+        if topic not in self._topic_subscriptions:
+            return False
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        return topic_subscription.async_callback is not None
 
     async def _start_processing(self) -> None:
         await self._protocol_handler.process_websocket_messages(self.connection, self._topic_subscriptions)
