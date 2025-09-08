@@ -3,7 +3,7 @@ import logging
 from asyncio import AbstractEventLoop, Queue
 from enum import Enum
 from types import TracebackType
-from typing import  Callable, Optional, Type, Union, Awaitable
+from typing import  Callable, Optional, Type, Union, Awaitable, Dict
 from websockets import ClientConnection
 
 from websockets import connect
@@ -11,6 +11,7 @@ from websockets import connect
 from phoenix_channels_python_client.exceptions import PHXConnectionError, PHXTopicError
 from phoenix_channels_python_client.phx_messages import (
     ChannelMessage,
+    ChannelEvent,
     PHXEvent,
     PHXEventMessage,
 )
@@ -164,8 +165,17 @@ class PHXChannelsClient:
         self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
         
         try:
-            topic.current_callback_task = asyncio.create_task(topic.async_callback(message))
-            await topic.current_callback_task
+            event_handler = topic.get_event_handler(message.event)
+            
+            if event_handler:
+                topic.current_callback_task = asyncio.create_task(event_handler(message))
+                await topic.current_callback_task
+            elif topic.async_callback:
+                topic.current_callback_task = asyncio.create_task(topic.async_callback(message))
+                await topic.current_callback_task
+            else:
+                self.logger.warning(f'No handler found for event {message.event} on topic {topic.name}')
+                
         except Exception as e:
             self.logger.exception(f'Error in topic callback for {topic.name}: {e}')
         finally:
@@ -221,7 +231,7 @@ class PHXChannelsClient:
         self._ref_counter += 1
         return str(self._ref_counter)
 
-    async def subscribe_to_topic(self, topic: str, async_callback: Callable[[ChannelMessage], Awaitable[None]]) -> None:
+    async def subscribe_to_topic(self, topic: str, async_callback: Optional[Callable[[ChannelMessage], Awaitable[None]]] = None) -> None:
         if topic in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} already subscribed')
         
@@ -274,6 +284,47 @@ class PHXChannelsClient:
         finally:
             self._unregister_topic(topic)
 
+    def add_event_handler(self, topic: str, event: ChannelEvent, handler: Callable[[ChannelMessage], Awaitable[None]]) -> None:
+        """Add or update an event handler for a specific event type on a topic."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        topic_subscription.add_event_handler(event, handler)
+        self.logger.debug(f'Added event handler for {event} on topic {topic}')
+
+    def remove_event_handler(self, topic: str, event: ChannelEvent) -> None:
+        """Remove an event handler for a specific event type on a topic."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        topic_subscription.remove_event_handler(event)
+        self.logger.debug(f'Removed event handler for {event} on topic {topic}')
+
+    def get_event_handler(self, topic: str, event: ChannelEvent) -> Optional[Callable[[ChannelMessage], Awaitable[None]]]:
+        """Get the handler for a specific event type on a topic."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        return topic_subscription.get_event_handler(event)
+
+    def has_event_handler(self, topic: str, event: ChannelEvent) -> bool:
+        """Check if a handler exists for a specific event type on a topic."""
+        if topic not in self._topic_subscriptions:
+            return False
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        return topic_subscription.has_event_handler(event)
+
+    def list_event_handlers(self, topic: str) -> Dict[ChannelEvent, Callable[[ChannelMessage], Awaitable[None]]]:
+        """List all event handlers for a topic."""
+        if topic not in self._topic_subscriptions:
+            raise PHXTopicError(f'Topic {topic} not subscribed')
+        
+        topic_subscription = self._topic_subscriptions[topic]
+        return topic_subscription.event_handlers.copy()
 
     async def _start_processing(self) -> None:
         await self._protocol_handler.process_websocket_messages(self.connection, self._topic_subscriptions)
