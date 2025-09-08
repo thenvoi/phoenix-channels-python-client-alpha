@@ -1,7 +1,7 @@
 from asyncio import  Queue, Task, Future, Event
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import  Callable, Awaitable, Optional, Dict
+from typing import  Callable, Awaitable, Optional, Dict, Any
 
 from phoenix_channels_python_client.phx_messages import ChannelMessage, ChannelEvent
 
@@ -30,9 +30,9 @@ class TopicSubscription:
     # Current callback task tracking
     current_callback_task: Optional[Task[None]] = None
     # Event-specific handlers mapping
-    event_handlers: Dict[ChannelEvent, Callable[[ChannelMessage], Awaitable[None]]] = field(default_factory=dict)
+    event_handlers: Dict[ChannelEvent, Callable[[Dict[str, Any]], Awaitable[None]]] = field(default_factory=dict)
     
-    def add_event_handler(self, event: ChannelEvent, handler: Callable[[ChannelMessage], Awaitable[None]]) -> None:
+    def add_event_handler(self, event: ChannelEvent, handler: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
         """Add or update an event handler for a specific event type."""
         self.event_handlers[event] = handler
     
@@ -40,7 +40,7 @@ class TopicSubscription:
         """Remove an event handler for a specific event type."""
         self.event_handlers.pop(event, None)
     
-    def get_event_handler(self, event: ChannelEvent) -> Optional[Callable[[ChannelMessage], Awaitable[None]]]:
+    def get_event_handler(self, event: ChannelEvent) -> Optional[Callable[[Dict[str, Any]], Awaitable[None]]]:
         """Get the handler for a specific event type."""
         return self.event_handlers.get(event)
     
