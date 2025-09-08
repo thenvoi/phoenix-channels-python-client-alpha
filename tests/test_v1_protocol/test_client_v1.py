@@ -280,40 +280,44 @@ async def test_dynamic_event_handler_management_with_counter(phoenix_server: Fak
     """Test dynamic add/remove of event handlers with counter."""
     
     handler_count = 0
-    fallback_count = 0
-    event_received = asyncio.Event()
+    message_handler_count = 0
+    message_handler_event = asyncio.Event()
+    specific_event = asyncio.Event()
     
-    async def fallback_callback(message: ChannelMessage):
-        nonlocal fallback_count
-        fallback_count += 1
-        event_received.set()
+    async def message_handler(message: ChannelMessage):
+        nonlocal message_handler_count
+        message_handler_count += 1
+        message_handler_event.set()
     
     async def count_handler(payload):
         nonlocal handler_count
         handler_count += 1
-        event_received.set()
+        specific_event.set()
     
     async with PHXChannelsClient(phoenix_server.url, api_key="test_key") as client:
-        await client.subscribe_to_topic("test-topic", fallback_callback)
+        await client.subscribe_to_topic("test-topic", message_handler)
         
-        # Event goes to fallback
+        # Event goes to message handler only
         await phoenix_server.simulate_server_event("test-topic", "count_me", {})
-        await event_received.wait()
-        event_received.clear()
+        await message_handler_event.wait()
+        message_handler_event.clear()
         assert handler_count == 0
-        assert fallback_count == 1
+        assert message_handler_count == 1
         
-        # Add handler, event goes to handler
+        # Add specific handler, event goes to both message handler and specific handler
         client.add_event_handler("test-topic", "count_me", count_handler)
         await phoenix_server.simulate_server_event("test-topic", "count_me", {})
-        await event_received.wait()
-        event_received.clear()
+        # Wait for both handlers to complete
+        await message_handler_event.wait()
+        await specific_event.wait()
+        message_handler_event.clear()
+        specific_event.clear()
         assert handler_count == 1
-        assert fallback_count == 1
+        assert message_handler_count == 2  # Both handlers ran
         
-        # Remove handler, event goes to fallback again
+        # Remove specific handler, event goes to message handler only again
         client.remove_event_handler("test-topic", "count_me")
         await phoenix_server.simulate_server_event("test-topic", "count_me", {})
-        await event_received.wait()
+        await message_handler_event.wait()
         assert handler_count == 1
-        assert fallback_count == 2
+        assert message_handler_count == 3  # Only message handler ran this time

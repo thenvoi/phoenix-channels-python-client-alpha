@@ -165,15 +165,24 @@ class PHXChannelsClient:
         self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
         
         try:
+            # Check what handlers we have
+            has_general_handler = topic.async_callback is not None
             event_handler = topic.get_event_handler(message.event)
+            has_specific_handler = event_handler is not None
             
-            if event_handler:
-                topic.current_callback_task = asyncio.create_task(event_handler(message.payload))
-                await topic.current_callback_task
-            elif topic.async_callback:
+            # Run general message handler first if it exists
+            if has_general_handler:
                 topic.current_callback_task = asyncio.create_task(topic.async_callback(message))
                 await topic.current_callback_task
-            else:
+                topic.current_callback_task = None
+            
+            # Run specific event handler if it exists
+            if has_specific_handler:
+                topic.current_callback_task = asyncio.create_task(event_handler(message.payload))
+                await topic.current_callback_task
+            
+            # Warn if no handlers exist at all
+            if not has_general_handler and not has_specific_handler:
                 self.logger.warning(f'No handler found for event {message.event} on topic {topic.name}')
                 
         except Exception as e:
