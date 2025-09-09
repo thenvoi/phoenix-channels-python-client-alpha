@@ -25,7 +25,7 @@ class PHXChannelsClient:
         websocket_url: str,
         api_key: str,
         event_loop: Optional[AbstractEventLoop] = None,
-        protocol_version: PhoenixChannelsProtocolVersion = PhoenixChannelsProtocolVersion.V1,
+        protocol_version: PhoenixChannelsProtocolVersion = PhoenixChannelsProtocolVersion.V2,
     ):
         self.logger = logging.getLogger(__name__)
         
