@@ -17,7 +17,7 @@ class PhoenixChannelsProtocolVersion(Enum):
 
 class PHXProtocolHandler:
     
-    def __init__(self, protocol_version: PhoenixChannelsProtocolVersion = PhoenixChannelsProtocolVersion.V1):
+    def __init__(self, protocol_version: PhoenixChannelsProtocolVersion):
         self.protocol_version = protocol_version.value
         self.logger = logging.getLogger(f"{__name__}.ProtocolHandler")
         self.logger.debug(f"Initialized PHXProtocolHandler for protocol version {self.protocol_version}")
