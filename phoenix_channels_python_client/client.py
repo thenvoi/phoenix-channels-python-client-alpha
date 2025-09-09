@@ -29,7 +29,6 @@ class PHXChannelsClient:
     ):
         self.logger = logging.getLogger(__name__)
         
-        # Simple URL composition - base URL + query parameters
         vsn = "2.0.0" if protocol_version == PhoenixChannelsProtocolVersion.V2 else "1.0.0"
         self.channel_socket_url = f"{websocket_url}?api_key={api_key}&vsn={vsn}"
         
@@ -160,8 +159,7 @@ class PHXChannelsClient:
             self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
             raise error
 
-    def _capture_handlers_for_message(self, topic: TopicSubscription, message: ChannelMessage) -> tuple:
-        """Capture atomic snapshots of all handlers for consistent message processing."""
+    def _capture_handlers_atomically(self, topic: TopicSubscription, message: ChannelMessage) -> tuple:
         message_handler = topic.async_callback
         event_handler = topic.get_event_handler(message.event)
         return message_handler, event_handler
@@ -169,7 +167,7 @@ class PHXChannelsClient:
     async def _handle_normal_message_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
         self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
         
-        message_handler, event_handler = self._capture_handlers_for_message(topic, message)
+        message_handler, event_handler = self._capture_handlers_atomically(topic, message)
         
         try:
             has_message_handler = message_handler is not None
@@ -238,7 +236,6 @@ class PHXChannelsClient:
         return self._protocol_handler
     
     def _generate_ref(self) -> str:
-        """Generate unique reference for Phoenix Channels messages."""
         self._ref_counter += 1
         return str(self._ref_counter)
 

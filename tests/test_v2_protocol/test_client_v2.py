@@ -12,7 +12,6 @@ async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoen
         async def test_callback(message: ChannelMessage):
             print(f"Received message: {message}")
         
-        # Subscribe returns None on success, raises exception on failure
         await client.subscribe_to_topic("test-topic", test_callback)
         
         subscriptions = client.get_current_subscriptions()
@@ -22,11 +21,8 @@ async def test_subscribe_to_topic_succeeds_when_subscribing_to_valid_topic(phoen
         assert topic_subscription.name == "test-topic"
         assert topic_subscription.async_callback == test_callback
         
-        # Verify subscription is ready
         assert topic_subscription.subscription_ready.done()
         assert not topic_subscription.subscription_ready.exception()
-        
-    # 4. Cleanup happens automatically via context manager
 
 
 @pytest.mark.asyncio
