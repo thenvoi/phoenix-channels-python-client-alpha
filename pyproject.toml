@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phoenix-channels-python-client"
+version = "0.1.0"
+description = "A Python client library for connecting to Phoenix Channels"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Phoenix Channels Python Client" }]
+requires-python = ">=3.7"
+dependencies = [
+    "websockets>=10.0",
+    "orjson",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+test = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+# Package discovery for flat layout (phoenix_channels_python_client/ in root)
+[tool.setuptools.packages.find]
+include = ["phoenix_channels_python_client*"]
+exclude = ["tests*"]
