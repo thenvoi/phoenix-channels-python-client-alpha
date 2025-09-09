@@ -1,10 +1,9 @@
 import asyncio
 import logging
+import signal
 from asyncio import AbstractEventLoop, Queue
-from enum import Enum
 from types import TracebackType
-from typing import  Callable, Optional, Type, Union, Awaitable, Dict, Any
-from websockets import ClientConnection
+from typing import  Callable, Optional, Type, Awaitable, Dict, Any
 
 from websockets import connect
 
@@ -374,3 +373,15 @@ class PHXChannelsClient:
 
     async def _start_processing(self) -> None:
         await self._protocol_handler.process_websocket_messages(self.connection, self._topic_subscriptions)
+
+    async def run_forever(self) -> None:
+        shutdown_event = asyncio.Event()
+        
+        def signal_handler():
+            shutdown_event.set()
+        
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, signal_handler)
+        
+        await shutdown_event.wait()
