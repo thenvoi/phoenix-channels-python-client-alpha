@@ -18,32 +18,22 @@ class TopicSubscription:
     name: str
     async_callback: Optional[Callable[[ChannelMessage], Awaitable[None]]]
     queue: Queue[ChannelMessage]
-    # Single future that completes when subscription is established or fails with exception
     subscription_ready: Future[None]
-    # Unique reference for this subscription
     join_ref: str
     process_topic_messages_task: Task[None] = None
-    # Signaling mechanism for leave requests
     leave_requested: Event = field(default_factory=Event)
-    # Future that completes when unsubscribe is done
     unsubscribe_completed: Optional[Future[None]] = None
-    # Current callback task tracking
     current_callback_task: Optional[Task[None]] = None
-    # Event-specific handlers mapping
     event_handlers: Dict[ChannelEvent, Callable[[Dict[str, Any]], Awaitable[None]]] = field(default_factory=dict)
     
     def add_event_handler(self, event: ChannelEvent, handler: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
-        """Add or update an event handler for a specific event type."""
         self.event_handlers[event] = handler
     
     def remove_event_handler(self, event: ChannelEvent) -> None:
-        """Remove an event handler for a specific event type."""
         self.event_handlers.pop(event, None)
     
     def get_event_handler(self, event: ChannelEvent) -> Optional[Callable[[Dict[str, Any]], Awaitable[None]]]:
-        """Get the handler for a specific event type."""
         return self.event_handlers.get(event)
     
     def has_event_handler(self, event: ChannelEvent) -> bool:
-        """Check if a handler exists for a specific event type."""
         return event in self.event_handlers

@@ -30,7 +30,6 @@ class PHXProtocolHandler:
             self.logger.debug(f'Decoded data: {parsed_data}')
             
             if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
-                # v2.0 expects array format: [join_ref, msg_ref, topic, event, payload]
                 if not isinstance(parsed_data, list):
                     raise ValueError(f"Protocol v{self.protocol_version} expects array format, got object")
                 if len(parsed_data) != 5:
@@ -44,7 +43,6 @@ class PHXProtocolHandler:
                     'join_ref': parsed_data[0]  # join_ref from first element
                 }
             else:
-                # v1.0 expects object format: {"topic": ..., "event": ..., "ref": ..., "payload": ...}
                 if not isinstance(parsed_data, dict):
                     raise ValueError(f"Protocol v{self.protocol_version} expects object format, got {type(parsed_data).__name__}")
                 
@@ -66,9 +64,8 @@ class PHXProtocolHandler:
         
         try:
             if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
-                # Official Phoenix Channels format: [join_ref, msg_ref, topic, event, payload]
-                join_ref = message.join_ref  # None for non-join messages
-                msg_ref = message.ref  # Can be None for server pushes
+                join_ref = message.join_ref
+                msg_ref = message.ref
                 message_array = [join_ref, msg_ref, message.topic, str(message.event), message.payload]
                 serialized = json.dumps(message_array)
             else:
@@ -95,7 +92,6 @@ class PHXProtocolHandler:
         self.protocol_version = version
     
     async def send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
-        """Send a message through the websocket connection."""
         self.logger.debug(f'Serialising {message=} to Phoenix Channels v{self.get_protocol_version()} format')
         text_message = self.serialize_message(message)
 
@@ -103,7 +99,6 @@ class PHXProtocolHandler:
         await websocket.send(text_message)
 
     async def process_websocket_messages(self, connection: ClientConnection, topic_subscriptions: Dict[str, TopicSubscription]) -> None:
-        """Process messages from the websocket connection and route them to appropriate topic subscriptions."""
         self.logger.debug('Starting websocket message loop')
         async for socket_message in connection:
             phx_message = self.parse_message(socket_message)
