@@ -187,6 +187,36 @@ async def main():
 asyncio.run(main())
 ```
 
+## Unsubscribing from Topics
+
+You can unsubscribe from topics to stop receiving messages and clean up resources:
+
+```python
+import asyncio
+from phoenix_channels_python_client import PHXChannelsClient
+
+async def main():
+    async with PHXChannelsClient("ws://localhost:4000/socket/websocket", "api-key") as client:
+        # Subscribe to a topic
+        await client.subscribe_to_topic("room:lobby", lambda msg: print(f"Message: {msg.payload}"))
+        
+        # Do some work...
+        await asyncio.sleep(5)
+        
+        # Unsubscribe when no longer needed
+        await client.unsubscribe_from_topic("room:lobby")
+        print("Unsubscribed from room:lobby")
+        
+        # Continue with other work or subscribe to different topics
+        await client.run_forever()
+
+asyncio.run(main())
+```
+
+**Notes on unsubscription:**
+- Removes all handlers (both message and event-specific) for that topic
+- Sends a leave message to the Phoenix server
+
 ---
 
 **Need help?** Open an issue on GitHub or check the [Phoenix Channels documentation](https://hexdocs.pm/phoenix/channels.html) for more information about the Phoenix Channels protocol.
