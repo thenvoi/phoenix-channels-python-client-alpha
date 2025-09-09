@@ -12,7 +12,6 @@ authors = [{ name = "Phoenix Channels Python Client" }]
 requires-python = ">=3.7"
 dependencies = [
     "websockets>=10.0",
-    "orjson",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

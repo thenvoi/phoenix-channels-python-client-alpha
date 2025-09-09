@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Dict, Union
 from websockets import ClientConnection
 
-from phoenix_channels_python_client import json_handler
+import json
 from phoenix_channels_python_client.phx_messages import ChannelMessage
 from phoenix_channels_python_client.utils import make_message
 from phoenix_channels_python_client.topic_subscription import TopicSubscription
@@ -26,7 +26,7 @@ class PHXProtocolHandler:
         self.logger.debug(f'Parsing raw message: {raw_message}')
         
         try:
-            parsed_data = json_handler.loads(raw_message)
+            parsed_data = json.loads(raw_message)
             self.logger.debug(f'Decoded data: {parsed_data}')
             
             if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
@@ -70,8 +70,7 @@ class PHXProtocolHandler:
                 join_ref = message.join_ref  # None for non-join messages
                 msg_ref = message.ref  # Can be None for server pushes
                 message_array = [join_ref, msg_ref, message.topic, str(message.event), message.payload]
-                serialized_bytes = json_handler.dumps(message_array)
-                serialized = serialized_bytes.decode('utf-8')
+                serialized = json.dumps(message_array)
             else:
                 v1_message = {
                     'topic': message.topic,
@@ -79,8 +78,7 @@ class PHXProtocolHandler:
                     'ref': message.ref,
                     'payload': message.payload
                 }
-                serialized_bytes = json_handler.dumps(v1_message)
-                serialized = serialized_bytes.decode('utf-8')
+                serialized = json.dumps(v1_message)
             
             self.logger.debug(f'Serialized to: {serialized}')
             return serialized
