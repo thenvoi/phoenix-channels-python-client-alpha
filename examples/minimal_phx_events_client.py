@@ -6,7 +6,7 @@ This example demonstrates how to use the phx-events library to connect
 to the Thenvoi platform's WebSocket API and listen to real-time events.
 
 Usage:
-    python sdk/examples/minimal_phx_events_client.py
+    python examples/minimal_phx_events_client.py
 
 Environment Variables Required:
     THENVOI_API_KEY - Your API key for authentication
@@ -73,8 +73,6 @@ async def main():
     
     ws_base_url = os.getenv("THENVOI_WS_URL", "ws://localhost:4000")
     
-    
-    
     if not api_key:
         logger.error("❌ Error: THENVOI_API_KEY environment variable is required")
         logger.error("Please set it in your .env file or environment")
@@ -85,23 +83,16 @@ async def main():
         async with PHXChannelsClient(ws_base_url, api_key=api_key, protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
             await client.subscribe_to_topic("room_participants:your-room-id", lambda message: logger.info(f"📨 Received: {message}"))
-            logger.info("✅ Successfully subscribed! Waiting for messages...")
-            await asyncio.sleep(1)
-            # await asyncio.sleep(1000)
-            # await client.unsubscribe_from_topic("room_participants:your-room-id")
-            # print(client.get_current_subscriptions())
-            # await asyncio.sleep(10)
-            # await client.subscribe_to_topic("room_participants:ea906102-8cd3-47e5-a051-49e5a7d6627d", lambda message: print(message))
-            # print(client.get_current_subscriptions())
-            # await asyncio.sleep(100)
+            await client.subscribe_to_topic("user_rooms:your-room-id", lambda message: logger.info(f"📨 Received: {message}"))
+            logger.info("✅ Successfully subscribed! Press Ctrl+C to stop...")
             
+            # Use the built-in convenience method instead of manual signal handling
+            await client.run_forever()
             
     except Exception as e:
         logger.error(f"❌ Connection failed: {e}")
         logger.exception("Full exception details:")
         raise
-    except KeyboardInterrupt:
-        logger.info("\n👋 Client stopped by user")
 
 
 
