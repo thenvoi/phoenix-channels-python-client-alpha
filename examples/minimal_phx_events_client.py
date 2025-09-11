@@ -19,7 +19,7 @@ import logging
 
 # Demo configuration - modify these values as needed
 API_KEY = "1234"
-WS_BASE_URL = "ws://localhost:4000/live/websocket"
+WS_BASE_URL = "ws://localhost:4000/api/v2/socket/websocket"
 LOG_LEVEL = logging.DEBUG
 
 # Setup basic logging configuration
@@ -41,7 +41,7 @@ async def main():
         logger.debug("Attempting to connect to Phoenix WebSocket...")
         async with PHXChannelsClient(WS_BASE_URL, api_key=API_KEY, protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
-            await client.subscribe_to_topic("room_participants:9b51e799-0768-4bc3-881f-ccadbb1b4ea9", lambda message: logger.info(f"📨 Received: {message}"))
+            # await client.subscribe_to_topic("room_participants:9b51e799-0768-4bc3-881f-ccadbb1b4ea9", lambda message: logger.info(f"📨 Received: {message}"))
             await client.subscribe_to_topic("user_rooms:ca546c81-e2fc-41cb-802c-1260681c8e65", lambda message: logger.info(f"📨 Received: {message}"))
             logger.info("✅ Successfully subscribed! Press Ctrl+C to stop...")
             
