@@ -34,6 +34,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+async def message_handler(message):
+    print(message)
 
 async def main():
     """Main client function."""
@@ -42,7 +44,7 @@ async def main():
         async with PHXChannelsClient(WS_BASE_URL, api_key=API_KEY, protocol_version=PhoenixChannelsProtocolVersion.V2) as client:
             logger.info("🔗 Connected to Thenvoi platform!")
             # await client.subscribe_to_topic("room_participants:your-room-id", lambda message: logger.info(f"📨 Received: {message}"))
-            await client.subscribe_to_topic("user_rooms:your-room-id", lambda message: logger.info(f"📨 Received: {message}"))
+            await client.subscribe_to_topic("user_rooms:your-room-id", message_handler)
             logger.info("✅ Successfully subscribed! Press Ctrl+C to stop...")
             
             # Use the built-in convenience method instead of manual signal handling
