@@ -19,7 +19,7 @@ import logging
 
 # Demo configuration - modify these values as needed
 API_KEY = "1234"
-WS_BASE_URL = "ws://localhost:4000/api/v2/socket/websocket"
+WS_BASE_URL = "ws://localhost:4000/api/v1/socket/websocket"
 LOG_LEVEL = logging.DEBUG
 
 # Setup basic logging configuration

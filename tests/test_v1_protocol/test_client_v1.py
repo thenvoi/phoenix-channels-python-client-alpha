@@ -275,32 +275,32 @@ async def test_shutdown_unsubscribes_from_all_topics_and_cleans_up_resources(pho
 @pytest.mark.asyncio
 async def test_dynamic_event_handler_management_with_counter(phoenix_server: FakePhoenixServerV1):
     """Test dynamic add/remove of event handlers with counter."""
-    
+
     handler_count = 0
     message_handler_count = 0
     message_handler_event = asyncio.Event()
     specific_event = asyncio.Event()
-    
+
     async def message_handler(message: ChannelMessage):
         nonlocal message_handler_count
         message_handler_count += 1
         message_handler_event.set()
-    
+
     async def count_handler(payload):
         nonlocal handler_count
         handler_count += 1
         specific_event.set()
-    
+
     async with PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V1) as client:
         await client.subscribe_to_topic("test-topic", message_handler)
-        
+
         # Event goes to message handler only
         await phoenix_server.simulate_server_event("test-topic", "count_me", {})
         await message_handler_event.wait()
         message_handler_event.clear()
         assert handler_count == 0
         assert message_handler_count == 1
-        
+
         # Add specific handler, event goes to both message handler and specific handler
         client.add_event_handler("test-topic", "count_me", count_handler)
         await phoenix_server.simulate_server_event("test-topic", "count_me", {})
@@ -311,10 +311,44 @@ async def test_dynamic_event_handler_management_with_counter(phoenix_server: Fak
         specific_event.clear()
         assert handler_count == 1
         assert message_handler_count == 2  # Both handlers ran
-        
+
         # Remove specific handler, event goes to message handler only again
         client.remove_event_handler("test-topic", "count_me")
         await phoenix_server.simulate_server_event("test-topic", "count_me", {})
         await message_handler_event.wait()
         assert handler_count == 1
         assert message_handler_count == 3  # Only message handler ran this time
+
+
+@pytest.mark.asyncio
+async def test_run_forever_exits_when_connection_closes(phoenix_server: FakePhoenixServerV1):
+    """Test that run_forever() returns when the WebSocket connection closes and cleanup happens properly."""
+
+    async def test_callback(_: ChannelMessage):
+        pass
+
+    client = PHXChannelsClient(phoenix_server.url, api_key="test_key", protocol_version=PhoenixChannelsProtocolVersion.V1)
+
+    async with client:
+        await client.subscribe_to_topic("test-topic", test_callback)
+
+        # Verify topic is subscribed
+        subscriptions = client.get_current_subscriptions()
+        assert "test-topic" in subscriptions
+        assert client.connection is not None
+
+        run_forever_task = asyncio.create_task(client.run_forever())
+
+        await phoenix_server.client_websocket.close()
+
+        # run_forever() should exit (proving it detected the closure)
+        # If this times out, it means run_forever() is hanging and not detecting the closure
+        try:
+            await asyncio.wait_for(run_forever_task, timeout=1.0)
+        except asyncio.TimeoutError:
+            pytest.fail("run_forever() did not exit after connection closed - it's hanging!")
+
+    # After exiting context manager, verify cleanup happened
+    subscriptions = client.get_current_subscriptions()
+    assert len(subscriptions) == 0
+    assert client.connection is None
