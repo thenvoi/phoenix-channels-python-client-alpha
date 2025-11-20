@@ -372,13 +372,45 @@ class PHXChannelsClient:
         await self._protocol_handler.process_websocket_messages(self.connection, self._topic_subscriptions)
 
     async def run_forever(self) -> None:
+        """
+        Run until connection closes or shutdown signal received.
+
+        Raises:
+            PHXConnectionError: If client is not connected
+            Exception: If the WebSocket connection fails
+        """
+        if self._message_routing_task is None:
+            raise PHXConnectionError("Client is not connected. Use 'async with' context manager.")
+
         shutdown_event = asyncio.Event()
-        
+
         def signal_handler():
             shutdown_event.set()
-        
+
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, signal_handler)
-        
-        await shutdown_event.wait()
+
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+        try:
+            # Wait for either shutdown signal OR message routing task to complete
+            done, pending = await asyncio.wait(
+                [self._message_routing_task, shutdown_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel pending tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            # If message routing task finished, re-raise any exception
+            if self._message_routing_task in done:
+                self._message_routing_task.result()  # This will raise if there was an exception
+        finally:
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.remove_signal_handler(sig)
