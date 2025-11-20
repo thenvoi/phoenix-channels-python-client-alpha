@@ -58,7 +58,7 @@ class FakePhoenixServerV2:
 
     async def simulate_server_event(self, topic, event, payload, join_ref=None):
         """Simulate a server event being sent to the client for testing purposes
-        
+
         Args:
             topic: The topic to send the event to
             event: The event name
