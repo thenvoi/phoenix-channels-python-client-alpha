@@ -20,6 +20,8 @@ import logging
 # Demo configuration - modify these values as needed
 API_KEY = "your-api-key"
 WS_BASE_URL = "wss://your-server.com/socket/websocket"
+
+# WS_BASE_URL = "wss://your-server.com/api/v1/socket/websocket"
 LOG_LEVEL = logging.DEBUG
 
 # Setup basic logging configuration

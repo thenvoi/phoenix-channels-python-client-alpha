@@ -65,33 +65,58 @@ class PHXChannelsClient:
         self,
         reason: str,
     ) -> None:
+        """
+        Gracefully shutdown the client connection.
+
+        This method will:
+        1. Unsubscribe from all topics (with 5 second timeout)
+        2. Cancel the message routing task
+        3. Close the WebSocket connection
+
+        Args:
+            reason: Human-readable reason for shutdown (for logging)
+
+        Note: This method is automatically called by __aexit__ when using
+        the async context manager. You can also call it explicitly.
+        """
         self.logger.info(f'Event loop shutting down! {reason=}')
-        
+
         topics_to_unsubscribe = list(self._topic_subscriptions.keys())
         if topics_to_unsubscribe:
             unsubscribe_tasks = [
-                self.unsubscribe_from_topic(topic) 
+                self.unsubscribe_from_topic(topic)
                 for topic in topics_to_unsubscribe
             ]
-            
-            results = await asyncio.gather(*unsubscribe_tasks, return_exceptions=True)
-            
-            for topic, result in zip(topics_to_unsubscribe, results):
-                if isinstance(result, Exception):
-                    self.logger.warning(f'Failed to unsubscribe from topic {topic} during shutdown: {result}')
+
+            try:
+                # Wait up to 5 seconds for graceful unsubscribe
+                # If server doesn't respond in time, force cleanup and continue
+                results = await asyncio.wait_for(
+                    asyncio.gather(*unsubscribe_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+
+                for topic, result in zip(topics_to_unsubscribe, results):
+                    if isinstance(result, Exception):
+                        self.logger.warning(f'Failed to unsubscribe from topic {topic} during shutdown: {result}')
+                        self._unregister_topic(topic)
+                    else:
+                        self.logger.debug(f'Successfully unsubscribed from topic {topic} during shutdown')
+            except asyncio.TimeoutError:
+                self.logger.warning(f'Unsubscribe timed out after 5 seconds, forcing cleanup of {len(topics_to_unsubscribe)} topics')
+                for topic in topics_to_unsubscribe:
                     self._unregister_topic(topic)
-                else:
-                    self.logger.debug(f'Successfully unsubscribed from topic {topic} during shutdown')
-        
+
         if self._message_routing_task and not self._message_routing_task.done():
             self._message_routing_task.cancel()
             try:
                 await self._message_routing_task
             except asyncio.CancelledError:
                 self.logger.debug('Message routing task cancelled during shutdown')
-        
-        await self.connection.close()
-        self.connection = None
+
+        if self.connection:
+            await self.connection.close()
+            self.connection = None
 
 
     def _set_subscription_ready(self, topic_subscription: TopicSubscription) -> None:
@@ -283,9 +308,12 @@ class PHXChannelsClient:
         await self._protocol_handler.send_message(self.connection, topic_leave_message)
         
         topic_subscription.leave_requested.set()
-        
+
         try:
             await unsubscribe_completed_future
+        except asyncio.CancelledError:
+            self.logger.debug(f'Unsubscribe from {topic} cancelled during shutdown')
+            raise
         except Exception as e:
             self.logger.error(f'Error during unsubscribe from {topic}: {e}')
             raise
@@ -373,7 +401,17 @@ class PHXChannelsClient:
 
     async def run_forever(self) -> None:
         """
-        Run until connection closes.
+        Run until connection closes or Ctrl+C is pressed.
+
+        This method registers signal handlers for SIGINT (Ctrl+C) and SIGTERM
+        to enable graceful shutdown. When a signal is received, the client will:
+        1. Send leave messages to all subscribed topics
+        2. Wait for server acknowledgments (up to 5 seconds)
+        3. Close the connection cleanly
+
+        Note: Signal handlers are automatically cleaned up when this method exits.
+        If you need custom signal handling, consider managing signals at the
+        application level and calling shutdown() explicitly.
 
         Raises:
             PHXConnectionError: If client is not connected
@@ -382,6 +420,29 @@ class PHXChannelsClient:
         if self._message_routing_task is None:
             raise PHXConnectionError("Client is not connected. Use 'async with' context manager.")
 
-        # Simply wait for the message routing task to complete
-        # If interrupted (e.g., Ctrl+C), the KeyboardInterrupt will propagate naturally
-        await self._message_routing_task
+        shutdown_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def signal_handler():
+            self.logger.debug('Received shutdown signal')
+            shutdown_event.set()
+
+        # Register asyncio signal handlers for graceful shutdown
+        loop.add_signal_handler(signal.SIGINT, signal_handler)
+        loop.add_signal_handler(signal.SIGTERM, signal_handler)
+
+        try:
+            # Wait for either the message routing task to complete or shutdown signal
+            await asyncio.wait(
+                [
+                    self._message_routing_task,
+                    asyncio.create_task(shutdown_event.wait())
+                ],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            # When this returns, either connection closed or Ctrl+C was pressed
+            # In both cases, we exit and let __aexit__ handle cleanup via shutdown()
+        finally:
+            # Remove signal handlers
+            loop.remove_signal_handler(signal.SIGINT)
+            loop.remove_signal_handler(signal.SIGTERM)
