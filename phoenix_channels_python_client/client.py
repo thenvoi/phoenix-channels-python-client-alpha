@@ -40,10 +40,9 @@ class PHXChannelsClient:
         self._ref_counter = 0
 
     async def __aenter__(self) -> 'PHXChannelsClient':
-        self.logger.debug('Entering PHXChannelsClient context')
         try:
             self.connection = await connect(self.channel_socket_url)
-            self.logger.debug('Successfully connected to Phoenix WebSocket server')
+            self.logger.info('Connected to Phoenix WebSocket server')
             self._message_routing_task = self._loop.create_task(self._start_processing())
             return self
         except Exception as e:
@@ -56,8 +55,7 @@ class PHXChannelsClient:
         exc_value: Optional[BaseException] = None,
         traceback: Optional[TracebackType] = None,
     ) -> None:
-        self.logger.debug('Leaving PHXChannelsClient context')
-        await self.shutdown('Leaving PHXChannelsClient context')
+        await self.shutdown('Client context exiting')
 
 
 
@@ -79,18 +77,17 @@ class PHXChannelsClient:
         Note: This method is automatically called by __aexit__ when using
         the async context manager. You can also call it explicitly.
         """
-        self.logger.info(f'Event loop shutting down! {reason=}')
+        self.logger.info(f'Shutting down client: {reason}')
 
         topics_to_unsubscribe = list(self._topic_subscriptions.keys())
         if topics_to_unsubscribe:
+            self.logger.info(f'Unsubscribing from {len(topics_to_unsubscribe)} topic(s)')
             unsubscribe_tasks = [
                 self.unsubscribe_from_topic(topic)
                 for topic in topics_to_unsubscribe
             ]
 
             try:
-                # Wait up to 5 seconds for graceful unsubscribe
-                # If server doesn't respond in time, force cleanup and continue
                 results = await asyncio.wait_for(
                     asyncio.gather(*unsubscribe_tasks, return_exceptions=True),
                     timeout=5.0
@@ -98,12 +95,10 @@ class PHXChannelsClient:
 
                 for topic, result in zip(topics_to_unsubscribe, results):
                     if isinstance(result, Exception):
-                        self.logger.warning(f'Failed to unsubscribe from topic {topic} during shutdown: {result}')
+                        self.logger.warning(f'Failed to unsubscribe from topic {topic}: {result}')
                         self._unregister_topic(topic)
-                    else:
-                        self.logger.debug(f'Successfully unsubscribed from topic {topic} during shutdown')
             except asyncio.TimeoutError:
-                self.logger.warning(f'Unsubscribe timed out after 5 seconds, forcing cleanup of {len(topics_to_unsubscribe)} topics')
+                self.logger.warning(f'Unsubscribe timed out after 5s, forcing cleanup')
                 for topic in topics_to_unsubscribe:
                     self._unregister_topic(topic)
 
@@ -112,11 +107,12 @@ class PHXChannelsClient:
             try:
                 await self._message_routing_task
             except asyncio.CancelledError:
-                self.logger.debug('Message routing task cancelled during shutdown')
+                pass
 
         if self.connection:
             await self.connection.close()
             self.connection = None
+            self.logger.info('Connection closed')
 
 
     def _set_subscription_ready(self, topic_subscription: TopicSubscription) -> None:
@@ -140,15 +136,13 @@ class PHXChannelsClient:
 
     async def _process_topic_messages(self, topic_name: str) -> None:
         topic = self._topic_subscriptions[topic_name]
-        self.logger.debug(f'Starting topic message processor for {topic.name}')
-        
+
         try:
             while True:
                 message = await topic.queue.get()
-                
+
                 current_state = self._determine_processing_state(topic)
-                self.logger.debug(f'Processing message for topic {topic.name} in state {current_state.value}: {message}')
-                
+
                 if current_state == TopicProcessingState.WAITING_FOR_JOIN:
                     await self._handle_join_response_mode(topic, message)
 
@@ -156,29 +150,26 @@ class PHXChannelsClient:
                     try:
                         await self._handle_leave_mode(topic, message)
                     except PHXTopicError:
-                        self.logger.debug(f'Exiting topic processor for {topic.name} - leave completed')
                         break
-                        
+
                 elif current_state == TopicProcessingState.NORMAL_PROCESSING:
                     await self._handle_normal_message_mode(topic, message)
-                
+
         except Exception as e:
-            self.logger.exception(f'Error in topic message processor for {topic.name}: {e}')
+            self.logger.error(f'Error in topic processor for {topic.name}: {e}')
             self._unregister_topic(topic.name)
 
     async def _handle_join_response_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
-        self.logger.debug(f'Handling join response for topic {topic.name}: {message}')
-        
         if not isinstance(message, PHXEventMessage) or message.event != PHXEvent.reply:
             raise PHXTopicError(f'Unexpected message type in join response mode: {message}')
-        
+
         if message.payload.get('status') == 'ok':
             self._set_subscription_ready(topic)
-            self.logger.info(f'Successfully subscribed to topic {topic.name}')
+            self.logger.info(f'Subscribed to topic: {topic.name}')
         else:
             response = message.payload.get('response', {})
             error_message = response.get('reason', 'invalid topic') if isinstance(response, dict) else 'invalid topic'
-            
+
             error = PHXTopicError(error_message)
             self._set_subscription_error(topic, error)
             self.logger.error(f'Failed to subscribe to topic {topic.name}: {error_message}')
@@ -190,53 +181,47 @@ class PHXChannelsClient:
         return message_handler, event_handler
 
     async def _handle_normal_message_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
-        self.logger.debug(f'Processing normal message for topic {topic.name}: {message}')
-        
         message_handler, event_handler = self._capture_handlers_atomically(topic, message)
-        
+
         try:
             has_message_handler = message_handler is not None
             has_specific_handler = event_handler is not None
-            
+
             if has_message_handler:
                 topic.current_callback_task = asyncio.create_task(message_handler(message))
                 await topic.current_callback_task
                 topic.current_callback_task = None
-            
+
             if has_specific_handler:
                 topic.current_callback_task = asyncio.create_task(event_handler(message.payload))
                 await topic.current_callback_task
-            
+
             if not has_message_handler and not has_specific_handler:
-                self.logger.warning(f'No handler found for event {message.event} on topic {topic.name}')
-                
+                self.logger.warning(f'No handler for event {message.event} on topic {topic.name}')
+
         except Exception as e:
-            self.logger.exception(f'Error in topic callback for {topic.name}: {e}')
+            self.logger.error(f'Error in topic callback for {topic.name}: {e}')
         finally:
             topic.current_callback_task = None
 
     async def _handle_leave_mode(self, topic: TopicSubscription, message: ChannelMessage) -> None:
-        self.logger.debug(f'Processing message during leave for topic {topic.name}: {message}')
-        
         if not isinstance(message, PHXEventMessage) or message.event != PHXEvent.reply:
-            self.logger.debug(f'Ignoring queued message for leaving topic {topic.name}: {message}')
             return
-        
+
         is_leave_success = message.payload.get('status') == 'ok'
-        
+
         if is_leave_success:
-            self.logger.info(f'Successfully unsubscribed from topic {topic.name}')
-            
+            self.logger.info(f'Unsubscribed from topic: {topic.name}')
+
             if topic.current_callback_task and not topic.current_callback_task.done():
-                self.logger.debug(f'Waiting for current callback to finish for topic {topic.name}')
                 try:
                     await topic.current_callback_task
                 except Exception as e:
-                    self.logger.exception(f'Error waiting for callback to finish for {topic.name}: {e}')
-            
+                    self.logger.error(f'Error waiting for callback to finish for {topic.name}: {e}')
+
             if topic.unsubscribe_completed and not topic.unsubscribe_completed.done():
                 topic.unsubscribe_completed.set_result(None)
-                
+
         else:
             self.logger.error(f'Failed to unsubscribe from topic {topic.name}: {message.payload}')
             if topic.unsubscribe_completed and not topic.unsubscribe_completed.done():
@@ -249,9 +234,6 @@ class PHXChannelsClient:
             if topic_subscription.process_topic_messages_task:
                 topic_subscription.process_topic_messages_task.cancel()
             del self._topic_subscriptions[topic_name]
-            self.logger.info(f'Unregistered topic {topic_name}')
-        else:
-            self.logger.warning(f'Topic {topic_name} not found in _topic_subscriptions')
 
 
     def get_current_subscriptions(self) -> dict[str, TopicSubscription]:
@@ -290,7 +272,7 @@ class PHXChannelsClient:
         try:
             await subscription_ready_future
         except Exception as e:
-            self.logger.error(f'Error during subscribe to {topic}: {e}')
+            self.logger.error(f'Failed to subscribe to {topic}: {e}')
             self._unregister_topic(topic)
             raise
 
@@ -312,10 +294,9 @@ class PHXChannelsClient:
         try:
             await unsubscribe_completed_future
         except asyncio.CancelledError:
-            self.logger.debug(f'Unsubscribe from {topic} cancelled during shutdown')
             raise
         except Exception as e:
-            self.logger.error(f'Error during unsubscribe from {topic}: {e}')
+            self.logger.error(f'Error unsubscribing from {topic}: {e}')
             raise
         finally:
             self._unregister_topic(topic)
@@ -324,19 +305,17 @@ class PHXChannelsClient:
         """Add or update an event handler for a specific event type on a topic."""
         if topic not in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} not subscribed')
-        
+
         topic_subscription = self._topic_subscriptions[topic]
         topic_subscription.add_event_handler(event, handler)
-        self.logger.debug(f'Added event handler for {event} on topic {topic}')
 
     def remove_event_handler(self, topic: str, event: ChannelEvent) -> None:
         """Remove an event handler for a specific event type on a topic."""
         if topic not in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} not subscribed')
-        
+
         topic_subscription = self._topic_subscriptions[topic]
         topic_subscription.remove_event_handler(event)
-        self.logger.debug(f'Removed event handler for {event} on topic {topic}')
 
     def get_event_handler(self, topic: str, event: ChannelEvent) -> Optional[Callable[[Dict[str, Any]], Awaitable[None]]]:
         """Get the handler for a specific event type on a topic."""
@@ -366,19 +345,17 @@ class PHXChannelsClient:
         """Set or update the message handler for a topic. This handler receives all messages."""
         if topic not in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} not subscribed')
-        
+
         topic_subscription = self._topic_subscriptions[topic]
         topic_subscription.async_callback = handler
-        self.logger.debug(f'Set message handler for topic {topic}')
 
     def remove_message_handler(self, topic: str) -> None:
         """Remove the message handler for a topic."""
         if topic not in self._topic_subscriptions:
             raise PHXTopicError(f'Topic {topic} not subscribed')
-        
+
         topic_subscription = self._topic_subscriptions[topic]
         topic_subscription.async_callback = None
-        self.logger.debug(f'Removed message handler for topic {topic}')
 
     def get_message_handler(self, topic: str) -> Optional[Callable[[ChannelMessage], Awaitable[None]]]:
         """Get the current message handler for a topic."""
@@ -424,7 +401,6 @@ class PHXChannelsClient:
         loop = asyncio.get_running_loop()
 
         def signal_handler():
-            self.logger.debug('Received shutdown signal')
             shutdown_event.set()
 
         # Register asyncio signal handlers for graceful shutdown

@@ -20,15 +20,11 @@ class PHXProtocolHandler:
     def __init__(self, protocol_version: PhoenixChannelsProtocolVersion):
         self.protocol_version = protocol_version.value
         self.logger = logging.getLogger(f"{__name__}.ProtocolHandler")
-        self.logger.debug(f"Initialized PHXProtocolHandler for protocol version {self.protocol_version}")
     
     def parse_message(self, raw_message: Union[str, bytes]) -> ChannelMessage:
-        self.logger.debug(f'Parsing raw message: {raw_message}')
-        
         try:
             parsed_data = json.loads(raw_message)
-            self.logger.debug(f'Decoded data: {parsed_data}')
-            
+
             if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
                 if not isinstance(parsed_data, list):
                     raise ValueError(f"Protocol v{self.protocol_version} expects array format, got object")
@@ -60,8 +56,6 @@ class PHXProtocolHandler:
             raise ValueError(f'Invalid message format: {e}') from e
     
     def serialize_message(self, message: ChannelMessage) -> str:
-        self.logger.debug(f'Serializing message: {message}')
-        
         try:
             if self.protocol_version == PhoenixChannelsProtocolVersion.V2.value:
                 join_ref = message.join_ref
@@ -76,10 +70,9 @@ class PHXProtocolHandler:
                     'payload': message.payload
                 }
                 serialized = json.dumps(v1_message)
-            
-            self.logger.debug(f'Serialized to: {serialized}')
+
             return serialized
-            
+
         except Exception as e:
             self.logger.error(f'Failed to serialize message {message}: {e}')
             raise TypeError(f'Cannot serialize message: {e}') from e
@@ -92,23 +85,17 @@ class PHXProtocolHandler:
         self.protocol_version = version
     
     async def send_message(self, websocket: ClientConnection, message: ChannelMessage) -> None:
-        self.logger.debug(f'Serialising {message=} to Phoenix Channels v{self.get_protocol_version()} format')
         text_message = self.serialize_message(message)
-
-        self.logger.debug(f'Sending as TEXT frame: {text_message}')
         await websocket.send(text_message)
 
     async def process_websocket_messages(self, connection: ClientConnection, topic_subscriptions: Dict[str, TopicSubscription]) -> None:
-        self.logger.debug('Starting websocket message loop')
         async for socket_message in connection:
             phx_message = self.parse_message(socket_message)
-            self.logger.debug(f'Processing message - {phx_message=}')
             topic = phx_message.topic
-            
+
             if topic in topic_subscriptions:
                 topic_subscription = topic_subscriptions[topic]
-                if self.protocol_version == "2.0" and topic_subscription.join_ref != phx_message.join_ref: 
-                    self.logger.warning(f'Received message for topic {topic} with join_ref {phx_message.join_ref} but expected {topic_subscription.join_ref}')
-                    self.logger.warning(f'Ignoring message')
+                if self.protocol_version == "2.0" and topic_subscription.join_ref != phx_message.join_ref:
+                    self.logger.warning(f'Ignoring message for topic {topic} with mismatched join_ref')
                     continue
                 await topic_subscription.queue.put(phx_message)

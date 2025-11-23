@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Optional
 
 from phoenix_channels_python_client.phx_messages import ChannelEvent, ChannelMessage, PHXEvent, PHXEventMessage, PHXMessage
@@ -25,3 +26,22 @@ def make_message(
         return PHXEventMessage(event=processed_event, topic=topic, ref=ref, payload=payload, join_ref=join_ref)
     else:
         return PHXMessage(event=processed_event, topic=topic, ref=ref, payload=payload, join_ref=join_ref)
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """
+    Configure clean logging with timestamps for Phoenix Channels Python Client.
+
+    Args:
+        level: Logging level (default: logging.INFO for production, use logging.DEBUG for development)
+
+    Example:
+        >>> from phoenix_channels_python_client.utils import setup_logging
+        >>> import logging
+        >>> setup_logging(logging.INFO)
+    """
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
