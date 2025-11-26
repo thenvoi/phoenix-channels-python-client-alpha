@@ -219,4 +219,21 @@ asyncio.run(main())
 
 ---
 
+## Security Considerations
+
+**API Key in URL**: This client passes the API key as a URL query parameter when connecting to the WebSocket (e.g., `wss://server.com/socket?api_key=xxx`). While the connection uses WSS (encrypted in transit), the API key may be logged by:
+
+- Server access logs
+- Reverse proxies and load balancers
+- Network monitoring tools
+
+**Recommendations:**
+- Ensure your infrastructure does not log full URLs in production
+- Use short-lived, rotatable tokens rather than long-lived API keys
+- Consider this limitation when evaluating this client for sensitive environments
+
+**Note:** The official Phoenix JS client (v1.8+) supports header-based authentication via the `authToken` option, which avoids URL logging. This Python client currently uses the older `params` style for broad compatibility.
+
+---
+
 **Need help?** Open an issue on GitHub or check the [Phoenix Channels documentation](https://hexdocs.pm/phoenix/channels.html) for more information about the Phoenix Channels protocol.

@@ -20,6 +20,20 @@ from phoenix_channels_python_client.utils import make_message
 
 
 class PHXChannelsClient:
+    """
+    Async Python client for Phoenix Channels WebSocket connections.
+
+    Security Note:
+        This client passes the API key as a URL query parameter during the WebSocket
+        handshake. While the connection uses WSS (encrypted), the API key may appear
+        in server access logs, proxy logs, or network monitoring tools. Ensure your
+        infrastructure does not log full URLs in production environments.
+
+        The official Phoenix JS client (v1.8+) supports header-based authentication
+        via the `authToken` option, which avoids this issue. This client currently
+        uses the older `params` style for compatibility.
+    """
+
     def __init__(
         self,
         websocket_url: str,
