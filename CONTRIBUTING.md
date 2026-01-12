@@ -138,6 +138,47 @@ pytest -k "test_name"
 5. Request review from maintainers
 6. Address any feedback
 
+## Naming Conventions
+
+### Issue Titles
+
+Use component prefixes to categorize issues:
+
+```
+[Component] Brief description
+```
+
+**Components:**
+- `[Client]` - PHXChannelsClient core functionality
+- `[Protocol]` - Phoenix protocol handling (v1/v2)
+- `[WebSocket]` - WebSocket connection management
+- `[Events]` - Event handlers and message routing
+- `[Docs]` - Documentation
+- `[CI]` - CI/CD and workflows
+- `[Performance]` - Performance improvements
+
+**Examples:**
+- `[Client] Add automatic reconnection support`
+- `[Protocol] Fix v2 message parsing`
+- `[WebSocket] Handle connection timeouts gracefully`
+
+### PR Titles
+
+Follow Conventional Commits format:
+
+```
+type(scope): description
+```
+
+**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+
+**Examples:**
+- `feat(client): add heartbeat configuration`
+- `fix(protocol): resolve v2 join response parsing`
+- `docs: update README with protocol examples`
+
+PR titles are validated by CI - PRs with invalid titles will fail the check.
+
 ## Branch Naming
 
 - `feat/description` - New features
