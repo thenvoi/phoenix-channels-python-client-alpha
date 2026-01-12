@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Component] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Naming Convention
+        Please update the issue title to follow this format:
+        `[Component] Brief description`
+
+        **Components:** `[Client]`, `[Protocol]`, `[WebSocket]`, `[Events]`, `[Docs]`, `[CI]`, `[Performance]`
+
+        **Example:** `[Client] Connection drops after 30 seconds`
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Connect to Phoenix server with...
+        2. Subscribe to topic...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version are you using?
+      placeholder: e.g., 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol Version
+      options:
+        - v2.0 (default)
+        - v1.0
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please provide:
+        - OS and version
+        - Python version
+        - Phoenix server version (if known)
+      placeholder: |
+        - OS: macOS 14.0
+        - Python: 3.11.5
+        - Phoenix: 1.7.x
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Any relevant log output or error messages
+      render: shell
