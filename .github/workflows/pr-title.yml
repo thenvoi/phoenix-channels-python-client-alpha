@@ -11,6 +11,8 @@ jobs:
   validate:
     name: Validate PR Title
     runs-on: ubuntu-latest
+    # Skip validation for dependabot PRs
+    if: github.actor != 'dependabot[bot]'
     steps:
       - name: Validate Conventional Commits format
         uses: amannn/action-semantic-pull-request@v5
@@ -37,6 +39,7 @@ jobs:
             websocket
             events
             deps
+            ci
           # Require scope to be provided
           requireScope: false
           # Disable validation for merge commits
